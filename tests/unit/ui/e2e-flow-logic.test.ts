@@ -49,7 +49,7 @@ describe("E2E flow · scan → vault → Elementor JSON", () => {
       </form>
     </body></html>`;
 
-    const bp = await scanToBlueprint({
+    const { blueprint: bp } = await scanToBlueprint({
       html,
       baseUrl: "https://e2e.test/",
       captureAssets: false,

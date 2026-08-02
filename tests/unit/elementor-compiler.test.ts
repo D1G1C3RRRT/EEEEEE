@@ -82,7 +82,7 @@ describe("Elementor DOM-to-JSON compiler", () => {
   });
 
   it("scanToBlueprint attaches elementorTemplate", async () => {
-    const bp = await scanToBlueprint({
+    const { blueprint: bp } = await scanToBlueprint({
       html: wpFixture,
       baseUrl: "https://wp.example/",
       captureAssets: false,

@@ -10,7 +10,7 @@ const fixture = readFileSync(
 
 describe("scanToBlueprint · options matrix", () => {
   it("wpJetEngine:false still runs design system + elementor template", async () => {
-    const bp = await scanToBlueprint({
+    const { blueprint: bp } = await scanToBlueprint({
       html: fixture,
       baseUrl: "https://wp.example/",
       wpJetEngine: false,
@@ -27,7 +27,7 @@ describe("scanToBlueprint · options matrix", () => {
   });
 
   it("wpJetEngine:true fills wordpress.dynamicFields", async () => {
-    const bp = await scanToBlueprint({
+    const { blueprint: bp } = await scanToBlueprint({
       html: fixture,
       baseUrl: "https://wp.example/",
       wpJetEngine: true,
@@ -44,7 +44,7 @@ describe("scanToBlueprint · options matrix", () => {
   });
 
   it("maxPages:1 does not require extra pages array items", async () => {
-    const bp = await scanToBlueprint({
+    const { blueprint: bp } = await scanToBlueprint({
       html: fixture,
       baseUrl: "https://wp.example/",
       maxPages: 1,
@@ -64,7 +64,7 @@ describe("scanToBlueprint · options matrix", () => {
       </form>
       <style id="elementor-frontend-inline-css">:root{--e-global-color-primary:#111}</style>
     </body></html>`;
-    const bp = await scanToBlueprint({
+    const { blueprint: bp } = await scanToBlueprint({
       html,
       baseUrl: "https://x.test/",
       captureAssets: false,

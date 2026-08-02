@@ -24,6 +24,8 @@ export interface PageHarvest {
   stylesheets: string[];
   cssBundles: Array<{ url: string; css: string }>;
   design: DesignTokens;
+  /** Raw HTML of the page — held in scan scope only, never persisted to Blueprint. */
+  html?: string;
 }
 
 export interface CrawlHarvestResult {
@@ -41,6 +43,8 @@ export interface CrawlHarvestResult {
   stylesheets: string[];
   cssBundles: Array<{ url: string; css: string }>;
   design: DesignTokens;
+  /** Raw HTML per page URL — scan-scope only, never persisted to Blueprint. */
+  pagesHtml: Map<string, string>;
 }
 
 function emptyDesign(): DesignTokens {
@@ -271,6 +275,7 @@ export async function harvestCrawlPages(opts: {
   let cssBundles: Array<{ url: string; css: string }> = [];
   let design = opts.initialDesign ? { ...opts.initialDesign } : emptyDesign();
   let aborted = false;
+  const pagesHtml = new Map<string, string>();
 
   const report = async () => {
     if (!opts.onProgress) return;
@@ -337,6 +342,7 @@ export async function harvestCrawlPages(opts: {
       }
 
       scannedPages.push(harvested.page);
+      if (harvested.html) pagesHtml.set(harvested.page.url, harvested.html);
       for (const l of harvested.links) {
         links.push(l);
         if (l.internal) enqueue(l.href, false);
@@ -402,6 +408,7 @@ export async function harvestCrawlPages(opts: {
     stylesheets,
     cssBundles,
     design,
+    pagesHtml,
   };
 }
 
