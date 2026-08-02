@@ -11,8 +11,25 @@ const SIGNALS: Array<{
     test: ({ html, headers }) => {
       if (/wp-content|wp-includes|wordpress/i.test(html)) return "wp-* paths in HTML";
       if (headers["x-powered-by"]?.toLowerCase().includes("wordpress")) return "X-Powered-By";
+      if (headers["link"]?.includes("wp-json")) return "Link: api.w.org";
       return null;
     },
+  },
+  {
+    name: "Elementor",
+    confidence: "high",
+    test: ({ html }) =>
+      /elementor-widget|data-elementor-type|elementor-section/i.test(html)
+        ? "Elementor DOM markers"
+        : null,
+  },
+  {
+    name: "JetEngine",
+    confidence: "high",
+    test: ({ html }) =>
+      /jet-listing-grid|jet-engine|jet-cct|jet-smart-filters/i.test(html)
+        ? "JetEngine listing / CCT markers"
+        : null,
   },
   {
     name: "WooCommerce",

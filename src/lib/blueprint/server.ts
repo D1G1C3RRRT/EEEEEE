@@ -21,6 +21,7 @@ const scanSchema = z
     render: z.boolean().optional(),
     wayback: z.boolean().optional(),
     captureAssets: z.boolean().optional(),
+    wpJetEngine: z.boolean().optional(),
   })
   .refine((d) => Boolean(d.url?.trim() || d.html?.trim()), {
     message: "Zadaj URL alebo HTML",
@@ -38,6 +39,7 @@ export const scanBlueprint = createServerFn({ method: "POST" })
         render: data.render,
         wayback: data.wayback,
         captureAssets: data.captureAssets,
+        wpJetEngine: data.wpJetEngine,
       });
       memory.set(blueprint.id, blueprint);
       if (memory.size > 40) {

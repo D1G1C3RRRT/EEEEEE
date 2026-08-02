@@ -33,6 +33,26 @@ export interface DesignTokens {
   borderRadii: string[];
   shadows: string[];
   spacingHints: string[];
+  /** Elementor --e-global-color-* / --e-global-typography-* */
+  elementorGlobals?: {
+    colors: Record<string, string>;
+    typography: Record<string, string>;
+    raw: Record<string, string>;
+    inlineCssBytes: number;
+    styleIds: string[];
+  };
+  /** Exact typography for h1–h4, body, button */
+  typography?: Array<{
+    selector: string;
+    fontFamily: string | null;
+    fontSize: string | null;
+    fontWeight: string | null;
+    lineHeight: string | null;
+    letterSpacing: string | null;
+    source: "elementor-global" | "css-rule" | "inferred";
+  }>;
+  /** WP uploads full-resolution candidates (thumbnail suffix stripped) */
+  fullImageUrls?: string[];
 }
 
 export interface DomOutlineNode {
@@ -59,8 +79,33 @@ export interface BlueprintLink {
 export interface BlueprintForm {
   action: string;
   method: string;
-  fields: Array<{ name: string; type: string; required: boolean }>;
+  fields: Array<{
+    name: string;
+    type: string;
+    required: boolean;
+    placeholder?: string;
+    label?: string;
+    autocomplete?: string;
+  }>;
+  /** login | contact | booking | … */
+  category?:
+    | "login"
+    | "register"
+    | "lost_password"
+    | "contact"
+    | "booking"
+    | "search"
+    | "newsletter"
+    | "checkout"
+    | "auth"
+    | "other";
+  id?: string | null;
+  classes?: string[];
+  submitText?: string | null;
+  confidence?: "high" | "medium" | "low";
+  evidence?: string;
 }
+
 
 export interface BlueprintPage {
   url: string;
@@ -78,11 +123,16 @@ export interface ScanOptionsApplied {
   render: boolean;
   wayback: boolean;
   captureAssets: boolean;
+  /** WordPress + JetEngine architecture extract */
+  wpJetEngine: boolean;
 }
+
+/** Re-export shape used on Blueprint — keep in types for consumers */
+export type { WordPressArchitecture } from "./wordpress-jetengine";
 
 export interface Blueprint {
   id: string;
-  version: "1.0.0" | "1.1.0";
+  version: "1.0.0" | "1.1.0" | "1.2.0";
   createdAt: string;
   source: ScanSource;
   sourceUrl: string | null;
@@ -108,6 +158,10 @@ export interface Blueprint {
   options: ScanOptionsApplied;
   waybackUrl: string | null;
   rendered: boolean;
+  /** WordPress / JetEngine / Elementor architecture extract */
+  wordpress: import("./wordpress-jetengine").WordPressArchitecture | null;
+  /** Compiled Elementor template (importable JSON schema v0.4) */
+  elementorTemplate: import("./elementor-compiler").ElementorTemplate | null;
   stats: {
     htmlBytes: number;
     assetCount: number;
@@ -136,6 +190,12 @@ export interface ScanRequest {
   wayback?: boolean;
   /** download binary assets into blueprint (default true) */
   captureAssets?: boolean;
+  /**
+   * WordPress + JetEngine architecture clone extract:
+   * REST (/wp-json, pages, jet-cct), listing grids, Elementor sections, sitemap crawl.
+   * Default true for URL scans.
+   */
+  wpJetEngine?: boolean;
 }
 
 export interface CompareChange {

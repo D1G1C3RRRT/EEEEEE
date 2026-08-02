@@ -84,8 +84,13 @@ function HomePage() {
             render: false,
             wayback: false,
             captureAssets: false,
+            wpJetEngine: false,
           };
+        } else if (parsed.options.wpJetEngine == null) {
+          parsed.options.wpJetEngine = false;
         }
+        if (parsed.wordpress === undefined) parsed.wordpress = null;
+        if (parsed.elementorTemplate === undefined) parsed.elementorTemplate = null;
         if (parsed.rendered == null) parsed.rendered = false;
         if (parsed.waybackUrl === undefined) parsed.waybackUrl = null;
         if (!parsed.stats.pageCount) parsed.stats.pageCount = 1;

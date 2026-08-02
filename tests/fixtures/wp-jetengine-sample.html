@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="utf-8" />
+  <title>Gruppa Demo WP JetEngine</title>
+  <meta name="description" content="Ukážka JetEngine listing + Elementor" />
+  <link rel="https://api.w.org/" href="https://wp.example/wp-json/" />
+  <link rel="stylesheet" href="https://wp.example/wp-content/plugins/elementor/assets/css/frontend.min.css" />
+  <style id="elementor-frontend-inline-css">
+    :root {
+      --e-global-color-primary: #0F0E0C;
+      --e-global-color-secondary: #C8A16E;
+      --e-global-typography-primary-font-family: "Geist";
+      --e-global-typography-primary-font-size: 40px;
+      --e-global-typography-primary-font-weight: 700;
+      --e-global-typography-text-font-size: 15px;
+    }
+    h1 { font-family: Geist, sans-serif; font-size: 40px; font-weight: 700; line-height: 1.2; }
+  </style>
+</head>
+<body class="elementor-default">
+  <header class="site-header elementor-location-header">
+    <nav class="main-navigation">
+      <a href="https://wp.example/">Domov</a>
+      <a href="https://wp.example/aplikacie/">Aplikácie</a>
+      <a href="https://wp.example/kontakt/">Kontakt</a>
+    </nav>
+  </header>
+
+  <div data-elementor-type="wp-page" data-elementor-id="12" class="elementor elementor-12">
+    <section class="elementor-section elementor-top-section" data-id="hero01" data-element_type="section">
+      <div class="elementor-container">
+        <h1 class="elementor-heading-title">Hero — Aplikácie CCT</h1>
+        <p>JetEngine grid demo</p>
+        <img src="https://wp.example/wp-content/uploads/2024/01/cover-1024x576.jpg" alt="cover" />
+      </div>
+    </section>
+
+    <section class="elementor-section elementor-top-section" data-id="grid99" data-element_type="section">
+      <div
+        class="elementor-widget elementor-widget-jet-listing-grid jet-listing-grid jet-listing-grid--42"
+        data-id="w123"
+        data-listing-id="42"
+        data-settings='{"post_type":"aplikacie","lisitng_post_type":"aplikacie"}'
+      >
+        <div class="jet-listing-grid__items">
+          <article class="jet-listing-grid__item jet-listing-dynamic-post">
+            <div
+              class="elementor-element elementor-widget elementor-widget-jet-listing-dynamic-field"
+              data-id="df01"
+              data-element_type="widget"
+              data-widget_type="jet-listing-dynamic-field.default"
+              data-settings='{"dynamic_field_source":"object_title","selected_dynamic_field":"title"}'
+            >
+              <h3 class="elementor-heading-title jet-listing-dynamic-field">App Alpha</h3>
+            </div>
+            <div
+              class="elementor-element elementor-widget elementor-widget-jet-listing-dynamic-field"
+              data-id="df02"
+              data-element_type="widget"
+              data-widget_type="jet-listing-dynamic-field.default"
+              data-settings='{"dynamic_field_source":"object_meta","dynamic_field_post_meta":"popis","filter_callback":""}'
+            >
+              <div class="jet-listing-dynamic-field">Popis alpha</div>
+            </div>
+            <div
+              class="elementor-element elementor-widget elementor-widget-jet-listing-dynamic-image"
+              data-id="di01"
+              data-settings='{"dynamic_image_source":"post_thumbnail"}'
+            >
+              <div class="jet-listing-dynamic-image">
+                <img src="https://wp.example/wp-content/uploads/2024/01/alpha-300x200.jpg" alt="Alpha" />
+              </div>
+            </div>
+            <div
+              class="elementor-element elementor-widget elementor-widget-jet-listing-dynamic-link"
+              data-id="dl01"
+              data-settings='{"dynamic_link_source":"permalink"}'
+            >
+              <a class="jet-listing-dynamic-link" href="https://wp.example/aplikacie/alpha/">Detail</a>
+            </div>
+            <div
+              class="elementor-element elementor-widget elementor-widget-jet-listing-dynamic-terms"
+              data-id="dt01"
+              data-settings='{"dynamic_terms_taxonomy":"kategoria"}'
+            >
+              <div class="jet-listing-dynamic-terms">SaaS, AI</div>
+            </div>
+            <i class="fas fa-rocket elementor-icon"></i>
+          </article>
+          <article class="jet-listing-grid__item jet-listing-dynamic-post">
+            <div class="jet-listing-dynamic-field" data-settings='{"dynamic_field_source":"object_title"}'>
+              <h3 class="elementor-heading-title">App Beta</h3>
+            </div>
+            <a class="jet-listing-dynamic-link" href="https://wp.example/aplikacie/beta/">Detail</a>
+          </article>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer class="site-footer elementor-location-footer">
+    <a href="https://wp.example/privacy/">Privacy</a>
+    <a href="https://wp.example/terms/">Terms</a>
+  </footer>
+  <script src="https://wp.example/wp-content/plugins/jet-engine/assets/js/frontend.js"></script>
+</body>
+</html>

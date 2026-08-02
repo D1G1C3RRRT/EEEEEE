@@ -1,13 +1,51 @@
 import { parse, type HTMLElement } from "node-html-parser";
-import { assertPublicUrl } from "./scan";
 
 const FETCH_MS = 12_000;
 const MAX_JSON_BYTES = 1_500_000;
 const MAX_CCT_TYPES = 40;
 const MAX_CCT_ITEMS = 50;
-const MAX_PAGES_REST = 40;
 const USER_AGENT =
   "BlueprintScanner/1.2 WP+JetEngine (+https://local; public architecture extract)";
+
+const BLOCKED_HOSTS = new Set([
+  "localhost",
+  "metadata.google.internal",
+  "metadata.google",
+]);
+
+function isPrivateIp(hostname: string): boolean {
+  if (hostname === "0.0.0.0" || hostname === "::" || hostname === "[::]") return true;
+  if (hostname === "127.0.0.1" || hostname.startsWith("127.")) return true;
+  if (hostname === "::1" || hostname === "[::1]") return true;
+  const m = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (m) {
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+  }
+  if (hostname.endsWith(".local") || hostname.endsWith(".internal")) return true;
+  return false;
+}
+
+function assertPublicUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("Neplatná URL pre WP extract.");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Povolené sú len http a https URL.");
+  }
+  const host = url.hostname.toLowerCase();
+  if (BLOCKED_HOSTS.has(host) || isPrivateIp(host)) {
+    throw new Error("Lokálne a privátne adresy nie je možné skenovať.");
+  }
+  return url;
+}
 
 export interface JetListingItemTemplate {
   outerHtml: string;
@@ -16,6 +54,8 @@ export interface JetListingItemTemplate {
   textSample: string;
   icons: string[];
   typographyHints: string[];
+  /** Dynamic fields inside this listing item */
+  dynamicFields: JetDynamicField[];
 }
 
 export interface JetListingGrid {
@@ -26,6 +66,64 @@ export interface JetListingGrid {
   itemCount: number;
   itemTemplate: JetListingItemTemplate | null;
   settingsHints: Record<string, string>;
+  /** Unique dynamic field map inferred from first item (+ page-level in grid) */
+  dynamicFields: JetDynamicField[];
+}
+
+/** JetEngine dynamic field / link / image / terms / meta / repeater */
+export type JetDynamicFieldKind =
+  | "field"
+  | "link"
+  | "image"
+  | "terms"
+  | "meta"
+  | "repeater"
+  | "relation"
+  | "unknown";
+
+export type JetDynamicFieldSource =
+  | "post_title"
+  | "post_content"
+  | "post_excerpt"
+  | "post_date"
+  | "post_id"
+  | "post_url"
+  | "post_thumbnail"
+  | "post_meta"
+  | "post_terms"
+  | "options_page"
+  | "user"
+  | "cct"
+  | "custom"
+  | "unknown";
+
+export interface JetDynamicField {
+  /** Stable key for rebuild (field slug / meta key / inferred) */
+  key: string;
+  kind: JetDynamicFieldKind;
+  source: JetDynamicFieldSource;
+  /** Meta / CCT field name when known */
+  metaKey: string | null;
+  /** Taxonomy slug for terms */
+  taxonomy: string | null;
+  /** Rendered sample value from public DOM */
+  sampleValue: string | null;
+  /** Image / link URL sample */
+  sampleUrl: string | null;
+  /** HTML tag of the rendered output */
+  tag: string | null;
+  /** Elementor data-id of wrapper widget */
+  elementorId: string | null;
+  classes: string[];
+  /** Raw data-settings subset (serializable strings) */
+  settings: Record<string, string>;
+  /** Format / callback hints (date format, filter_callback, …) */
+  formatHints: string[];
+  /** Confidence of key/source inference */
+  confidence: "high" | "medium" | "low";
+  /** Where found */
+  context: "listing_item" | "page" | "widget";
+  evidence: string;
 }
 
 export interface ElementorSection {
@@ -37,6 +135,14 @@ export interface ElementorSection {
   childSummary: string[];
 }
 
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
 export interface WpRestEndpointResult {
   path: string;
   url: string;
@@ -44,9 +150,8 @@ export interface WpRestEndpointResult {
   ok: boolean;
   bytes: number;
   summary: string;
-  /** truncated raw payload for blueprint (stringified JSON or error) */
   payloadPreview: string;
-  data?: unknown;
+  data?: JsonValue;
 }
 
 export interface JetCctType {
@@ -54,8 +159,8 @@ export interface JetCctType {
   endpoint: string;
   itemCount: number | null;
   fields: Array<{ name: string; type?: string; required?: boolean }>;
-  sampleItems: unknown[];
-  schemaHints: Record<string, unknown>;
+  sampleItems: JsonValue[];
+  schemaHints: { [key: string]: JsonValue };
 }
 
 export interface WordPressArchitecture {
@@ -73,6 +178,17 @@ export interface WordPressArchitecture {
   };
   cctTypes: JetCctType[];
   listingGrids: JetListingGrid[];
+  /** All JetEngine dynamic fields across page + listings */
+  dynamicFields: JetDynamicField[];
+  /** Deduped field catalog for CCT / rebuild map */
+  dynamicFieldCatalog: Array<{
+    key: string;
+    kind: JetDynamicFieldKind;
+    source: JetDynamicFieldSource;
+    metaKey: string | null;
+    occurrences: number;
+    sampleValues: string[];
+  }>;
   elementorSections: ElementorSection[];
   sitemapUrls: string[];
   navLinks: string[];
@@ -96,6 +212,557 @@ function absUrl(base: string, href: string | null | undefined): string | null {
 function textSample(el: HTMLElement, max = 160): string {
   const t = (el.text || "").replace(/\s+/g, " ").trim();
   return t.length > max ? `${t.slice(0, max)}…` : t;
+}
+
+/** Decode common HTML entities used in Elementor data-settings attributes. */
+function decodeHtmlEntities(input: string): string {
+  // Build named entities at runtime (avoids HTML-pipeline mangling of source).
+  const amp = "&" + "amp;";
+  const quot = "&" + "quot;";
+  const apos = "&" + "apos;";
+  const lt = "&" + "lt;";
+  const gt = "&" + "gt;";
+  let cur = input;
+  // Iterative: " → " → "
+  for (let i = 0; i < 6; i++) {
+    const prev = cur;
+    cur = cur
+      .split(amp)
+      .join("&")
+      .split(quot)
+      .join('"')
+      .split(apos)
+      .join("'")
+      .split(lt)
+      .join("<")
+      .split(gt)
+      .join(">")
+      .replace(/&#0*34;/g, '"')
+      .replace(/&#x0*22;/gi, '"')
+      .replace(/&#0*39;/g, "'")
+      .replace(/&#x0*27;/gi, "'");
+    if (cur === prev) break;
+  }
+  return cur;
+}
+
+function tryParseSettingsObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* not JSON object */
+  }
+  return null;
+}
+
+/** Parse Elementor/Jet data-settings (handles HTML entity encoding, double-encoding, escapes). */
+export function parseDataSettings(
+  raw: string | null | undefined,
+): Record<string, unknown> | null {
+  if (raw == null) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  if (trimmed === "{}") return {};
+
+  const unescaped = trimmed
+    .replace(/\\"/g, '"')
+    .replace(/\\'/g, "'")
+    .replace(/\\u0022/gi, '"')
+    .replace(/\\u0027/gi, "'");
+
+  const decoded = decodeHtmlEntities(trimmed);
+  const decodedUnescaped = decodeHtmlEntities(unescaped);
+
+  // Prefer fully decoded variants first so values don't keep entity leftovers.
+  const candidates: string[] = [];
+  const push = (s: string) => {
+    if (s && !candidates.includes(s)) candidates.push(s);
+  };
+  push(decodedUnescaped);
+  push(decoded);
+  push(unescaped);
+  push(trimmed);
+
+  // Attribute sometimes contains junk around the JSON object
+  for (const base of [decodedUnescaped, decoded, trimmed]) {
+    const brace = base.match(/\{[\s\S]*\}/);
+    if (brace) push(brace[0]);
+  }
+
+  for (const c of candidates) {
+    const obj = tryParseSettingsObject(c);
+    if (obj) return obj;
+  }
+  return null;
+}
+
+function strSetting(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean")
+    return String(v);
+  return null;
+}
+
+function kindFromClasses(classes: string[], widgetHint: string | null): JetDynamicFieldKind {
+  const blob = `${classes.join(" ")} ${widgetHint || ""}`.toLowerCase();
+  if (/dynamic-link|dynamic_link|jet-listing-dynamic-link/.test(blob)) return "link";
+  if (/dynamic-image|dynamic_image|jet-listing-dynamic-image|featured-image/.test(blob))
+    return "image";
+  if (/dynamic-terms|dynamic_terms|jet-listing-dynamic-terms|taxonomy/.test(blob))
+    return "terms";
+  if (/dynamic-meta|dynamic_meta|jet-listing-dynamic-meta/.test(blob)) return "meta";
+  if (/dynamic-repeater|dynamic_repeater|jet-listing-dynamic-repeater/.test(blob))
+    return "repeater";
+  if (/relation|related|jet-engine-relation/.test(blob)) return "relation";
+  if (/dynamic-field|dynamic_field|jet-listing-dynamic-field/.test(blob)) return "field";
+  return "unknown";
+}
+
+function sourceFromSettings(
+  settings: Record<string, unknown>,
+  kind: JetDynamicFieldKind,
+): {
+  source: JetDynamicFieldSource;
+  metaKey: string | null;
+  taxonomy: string | null;
+  formatHints: string[];
+  confidence: "high" | "medium" | "low";
+  evidence: string;
+} {
+  const formatHints: string[] = [];
+  const get = (...keys: string[]) => {
+    for (const k of keys) {
+      if (settings[k] != null && settings[k] !== "") return settings[k];
+    }
+    return null;
+  };
+
+  const sourceRaw =
+    strSetting(
+      get(
+        "dynamic_field_source",
+        "dynamic_link_source",
+        "dynamic_image_source",
+        "dynamic_terms_source",
+        "source",
+        "field_source",
+      ),
+    ) || "";
+  const meta =
+    strSetting(
+      get(
+        "dynamic_field_post_meta",
+        "dynamic_link_source_custom",
+        "dynamic_image_source_custom",
+        "meta_field",
+        "selected_field",
+        "field",
+        "key",
+        "meta_key",
+        "cct_field",
+      ),
+    ) || null;
+  const taxonomy =
+    strSetting(get("dynamic_terms_taxonomy", "taxonomy", "tax")) || null;
+
+  for (const k of [
+    "filter_callback",
+    "field_format",
+    "date_format",
+    "number_format",
+    "fallback",
+    "dynamic_field_format",
+  ]) {
+    const v = strSetting(settings[k]);
+    if (v) formatHints.push(`${k}=${v}`);
+  }
+
+  const s = sourceRaw.toLowerCase();
+  if (/object_title|post_title|title/.test(s) && !meta) {
+    return {
+      source: "post_title",
+      metaKey: null,
+      taxonomy,
+      formatHints,
+      confidence: "high",
+      evidence: `source=${sourceRaw}`,
+    };
+  }
+  if (/object_content|post_content|content/.test(s)) {
+    return {
+      source: "post_content",
+      metaKey: null,
+      taxonomy,
+      formatHints,
+      confidence: "high",
+      evidence: `source=${sourceRaw}`,
+    };
+  }
+  if (/object_excerpt|post_excerpt|excerpt/.test(s)) {
+    return {
+      source: "post_excerpt",
+      metaKey: null,
+      taxonomy,
+      formatHints,
+      confidence: "high",
+      evidence: `source=${sourceRaw}`,
+    };
+  }
+  if (/object_date|post_date|date/.test(s) && !/update/.test(s)) {
+    return {
+      source: "post_date",
+      metaKey: null,
+      taxonomy,
+      formatHints,
+      confidence: "high",
+      evidence: `source=${sourceRaw}`,
+    };
+  }
+  if (/object_id|post_id/.test(s)) {
+    return {
+      source: "post_id",
+      metaKey: null,
+      taxonomy,
+      formatHints,
+      confidence: "high",
+      evidence: `source=${sourceRaw}`,
+    };
+  }
+  if (/permalink|post_url|url|href/.test(s) && kind === "link") {
+    return {
+      source: "post_url",
+      metaKey: meta,
+      taxonomy,
+      formatHints,
+      confidence: "high",
+      evidence: `source=${sourceRaw}`,
+    };
+  }
+  if (/image|thumbnail|featured/.test(s) || kind === "image") {
+    if (meta) {
+      return {
+        source: "post_meta",
+        metaKey: meta,
+        taxonomy,
+        formatHints,
+        confidence: "high",
+        evidence: `image meta=${meta}`,
+      };
+    }
+    return {
+      source: "post_thumbnail",
+      metaKey: null,
+      taxonomy,
+      formatHints,
+      confidence: sourceRaw ? "high" : "medium",
+      evidence: sourceRaw || "image widget",
+    };
+  }
+  if (/terms|taxonomy/.test(s) || kind === "terms") {
+    return {
+      source: "post_terms",
+      metaKey: null,
+      taxonomy,
+      formatHints,
+      confidence: taxonomy ? "high" : "medium",
+      evidence: taxonomy ? `taxonomy=${taxonomy}` : sourceRaw || "terms widget",
+    };
+  }
+  if (/meta|custom|post_meta|object_meta/.test(s) || meta) {
+    return {
+      source: "post_meta",
+      metaKey: meta,
+      taxonomy,
+      formatHints,
+      confidence: meta ? "high" : "medium",
+      evidence: meta ? `meta=${meta}` : `source=${sourceRaw || "meta"}`,
+    };
+  }
+  if (/cct|custom_content_type/.test(s)) {
+    return {
+      source: "cct",
+      metaKey: meta,
+      taxonomy,
+      formatHints,
+      confidence: meta ? "high" : "medium",
+      evidence: `cct field=${meta || sourceRaw}`,
+    };
+  }
+  if (/options|option_page/.test(s)) {
+    return {
+      source: "options_page",
+      metaKey: meta,
+      taxonomy,
+      formatHints,
+      confidence: "medium",
+      evidence: sourceRaw,
+    };
+  }
+  if (/user/.test(s)) {
+    return {
+      source: "user",
+      metaKey: meta,
+      taxonomy,
+      formatHints,
+      confidence: "medium",
+      evidence: sourceRaw,
+    };
+  }
+  if (kind === "link" && !sourceRaw) {
+    return {
+      source: "post_url",
+      metaKey: null,
+      taxonomy,
+      formatHints,
+      confidence: "low",
+      evidence: "link without source attr",
+    };
+  }
+  return {
+    source: "unknown",
+    metaKey: meta,
+    taxonomy,
+    formatHints,
+    confidence: "low",
+    evidence: sourceRaw || "no data-settings source",
+  };
+}
+
+function inferKeyFromDom(
+  el: HTMLElement,
+  kind: JetDynamicFieldKind,
+  metaKey: string | null,
+  source: JetDynamicFieldSource,
+  sampleValue: string | null,
+): string {
+  if (metaKey) return metaKey;
+  if (source !== "unknown" && source !== "post_meta" && source !== "cct") {
+    return source;
+  }
+  // class pattern jet-dynamic-field--name or field-name
+  const classes = (el.getAttribute("class") || "").split(/\s+/);
+  for (const c of classes) {
+    const m =
+      c.match(/dynamic-field--([a-z0-9_-]+)/i) ||
+      c.match(/field--([a-z0-9_-]+)/i) ||
+      c.match(/meta-([a-z0-9_-]+)/i);
+    if (m && m[1] && m[1].length > 1) return m[1];
+  }
+  const dataField =
+    el.getAttribute("data-field") ||
+    el.getAttribute("data-meta") ||
+    el.getAttribute("data-meta-key");
+  if (dataField) return dataField;
+  // weak: slug from sample for unique-ish keys
+  if (sampleValue && sampleValue.length < 40 && /^[\w\s./-]+$/.test(sampleValue)) {
+    return `sample:${sampleValue.slice(0, 24).trim().replace(/\s+/g, "_").toLowerCase()}`;
+  }
+  return kind === "unknown" ? "unknown_field" : `dynamic_${kind}`;
+}
+
+function extractOneDynamicField(
+  el: HTMLElement,
+  base: string,
+  context: JetDynamicField["context"],
+): JetDynamicField | null {
+  const classes = (el.getAttribute("class") || "").split(/\s+/).filter(Boolean);
+  // climb for widget wrapper settings
+  let widgetEl: HTMLElement = el;
+  let settings: Record<string, unknown> | null = parseDataSettings(
+    el.getAttribute("data-settings"),
+  );
+  let elementorId = el.getAttribute("data-id");
+  // parent walk up to 5 levels for elementor-widget-jet-*
+  let p: HTMLElement | null = el.parentNode as HTMLElement | null;
+  for (let i = 0; i < 6 && p; i++) {
+    if (!p.getAttribute) break;
+    const pc = p.getAttribute("class") || "";
+    if (/elementor-widget-jet|jet-listing-dynamic|elementor-element/.test(pc)) {
+      widgetEl = p;
+      if (!settings) settings = parseDataSettings(p.getAttribute("data-settings"));
+      if (!elementorId) elementorId = p.getAttribute("data-id");
+      if (/elementor-widget-jet/.test(pc) && settings) break;
+    }
+    p = p.parentNode as HTMLElement | null;
+  }
+
+  const widgetClass = widgetEl.getAttribute("class") || "";
+  const kind = kindFromClasses(
+    [...classes, ...widgetClass.split(/\s+/)],
+    widgetClass,
+  );
+  // skip pure grid containers mistaken as dynamic
+  if (
+    kind === "unknown" &&
+    !/jet-listing-dynamic|dynamic-field|dynamic-link|dynamic-image|dynamic-terms|dynamic-meta|dynamic-repeater/i.test(
+      `${classes.join(" ")} ${widgetClass}`,
+    )
+  ) {
+    return null;
+  }
+
+  const resolved = sourceFromSettings(settings || {}, kind === "unknown" ? "field" : kind);
+  let sampleUrl: string | null = null;
+  let sampleValue: string | null = null;
+  const tag = (el.tagName || "").toLowerCase() || null;
+
+  if (kind === "image" || el.querySelector("img")) {
+    const img = el.tagName?.toLowerCase() === "img" ? el : el.querySelector("img");
+    sampleUrl =
+      absUrl(base, img?.getAttribute("src")) ||
+      absUrl(base, img?.getAttribute("data-src")) ||
+      absUrl(base, img?.getAttribute("data-lazy-src"));
+    sampleValue = img?.getAttribute("alt") || null;
+  }
+  if (kind === "link" || el.tagName?.toLowerCase() === "a" || el.querySelector("a")) {
+    const a = el.tagName?.toLowerCase() === "a" ? el : el.querySelector("a");
+    sampleUrl = absUrl(base, a?.getAttribute("href")) || sampleUrl;
+    sampleValue = textSample(a || el, 120) || sampleValue;
+  }
+  if (!sampleValue) sampleValue = textSample(el, 160) || null;
+  if (sampleValue === "") sampleValue = null;
+
+  const finalKind = kind === "unknown" ? "field" : kind;
+  const key = inferKeyFromDom(
+    el,
+    finalKind,
+    resolved.metaKey,
+    resolved.source,
+    sampleValue,
+  );
+
+  const settingsOut: Record<string, string> = {};
+  if (settings) {
+    for (const [k, v] of Object.entries(settings)) {
+      const s = strSetting(v);
+      if (s != null && s.length < 300) settingsOut[k] = s;
+      if (Object.keys(settingsOut).length >= 24) break;
+    }
+  }
+
+  return {
+    key,
+    kind: finalKind,
+    source: resolved.source,
+    metaKey: resolved.metaKey,
+    taxonomy: resolved.taxonomy,
+    sampleValue,
+    sampleUrl,
+    tag,
+    elementorId: elementorId || null,
+    classes: classes.slice(0, 16),
+    settings: settingsOut,
+    formatHints: resolved.formatHints,
+    confidence: resolved.confidence,
+    context,
+    evidence: resolved.evidence,
+  };
+}
+
+const DYNAMIC_SELECTORS = [
+  ".jet-listing-dynamic-field",
+  ".jet-listing-dynamic-link",
+  ".jet-listing-dynamic-image",
+  ".jet-listing-dynamic-terms",
+  ".jet-listing-dynamic-meta",
+  ".jet-listing-dynamic-repeater",
+  ".jet-engine-listing-overlay-content .jet-listing-dynamic-field",
+  ".elementor-widget-jet-listing-dynamic-field",
+  ".elementor-widget-jet-listing-dynamic-link",
+  ".elementor-widget-jet-listing-dynamic-image",
+  ".elementor-widget-jet-listing-dynamic-terms",
+  ".elementor-widget-jet-listing-dynamic-meta",
+  ".elementor-widget-jet-listing-dynamic-repeater",
+  "[class*='jet-listing-dynamic-']",
+].join(", ");
+
+export function extractJetDynamicFields(
+  html: string,
+  base: string,
+  scope?: HTMLElement,
+): JetDynamicField[] {
+  const root =
+    scope ||
+    parse(html, {
+      comment: false,
+      blockTextElements: { script: true, style: true, noscript: true },
+    });
+  const fields: JetDynamicField[] = [];
+  const seen = new Set<string>();
+  const nodes = root.querySelectorAll(DYNAMIC_SELECTORS);
+
+  for (const node of nodes) {
+    // skip nested duplicates (widget wrapping inner dynamic field)
+    const parent = node.parentNode as HTMLElement | null;
+    if (
+      parent?.getAttribute &&
+      /jet-listing-dynamic|elementor-widget-jet-listing-dynamic/.test(
+        parent.getAttribute("class") || "",
+      ) &&
+      node.getAttribute("class")?.includes("jet-listing-dynamic") &&
+      parent.querySelector(".jet-listing-dynamic-field, .jet-listing-dynamic-link")
+    ) {
+      // keep both if different kinds; filter later by dedupe
+    }
+    const inListing = Boolean(
+      (node as HTMLElement).closest?.(".jet-listing-grid__item") ||
+        (function walkUp(el: HTMLElement | null): boolean {
+          let cur = el;
+          for (let i = 0; i < 12 && cur; i++) {
+            const c = cur.getAttribute?.("class") || "";
+            if (/jet-listing-grid__item|jet-listing-dynamic-post/.test(c)) return true;
+            cur = cur.parentNode as HTMLElement | null;
+          }
+          return false;
+        })(node as HTMLElement),
+    );
+    const field = extractOneDynamicField(
+      node as HTMLElement,
+      base,
+      inListing ? "listing_item" : "widget",
+    );
+    if (!field) continue;
+    const dedupe = `${field.kind}|${field.key}|${field.elementorId || ""}|${field.sampleValue || ""}`;
+    if (seen.has(dedupe)) continue;
+    seen.add(dedupe);
+    fields.push(field);
+    if (fields.length >= 120) break;
+  }
+  return fields;
+}
+
+export function buildDynamicFieldCatalog(
+  fields: JetDynamicField[],
+): WordPressArchitecture["dynamicFieldCatalog"] {
+  const map = new Map<
+    string,
+    WordPressArchitecture["dynamicFieldCatalog"][number]
+  >();
+  for (const f of fields) {
+    const k = `${f.kind}:${f.key}`;
+    const prev = map.get(k);
+    if (!prev) {
+      map.set(k, {
+        key: f.key,
+        kind: f.kind,
+        source: f.source,
+        metaKey: f.metaKey,
+        occurrences: 1,
+        sampleValues: f.sampleValue ? [f.sampleValue] : [],
+      });
+    } else {
+      prev.occurrences += 1;
+      if (f.sampleValue && prev.sampleValues.length < 5 && !prev.sampleValues.includes(f.sampleValue)) {
+        prev.sampleValues.push(f.sampleValue);
+      }
+      if (prev.source === "unknown" && f.source !== "unknown") prev.source = f.source;
+      if (!prev.metaKey && f.metaKey) prev.metaKey = f.metaKey;
+    }
+  }
+  return [...map.values()].sort((a, b) => b.occurrences - a.occurrences);
 }
 
 async function fetchJson(
@@ -174,19 +841,27 @@ function endpointResult(
   };
 }
 
-/** Limit depth/keys so blueprint stays actionable, not a megabyte dump */
-function truncateDeep(value: unknown, depth: number, maxKeys: number): unknown {
+function truncateDeep(value: unknown, depth: number, maxKeys: number): JsonValue {
   if (depth <= 0) {
     if (Array.isArray(value)) return `[array:${value.length}]`;
     if (value && typeof value === "object") return "[object]";
-    return value;
+    if (value === undefined) return null;
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean" ||
+      value === null
+    ) {
+      return value;
+    }
+    return String(value);
   }
   if (Array.isArray(value)) {
     return value.slice(0, 12).map((v) => truncateDeep(v, depth - 1, maxKeys));
   }
   if (value && typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>).slice(0, maxKeys);
-    const out: Record<string, unknown> = {};
+    const out: { [key: string]: JsonValue } = {};
     for (const [k, v] of entries) {
       out[k] = truncateDeep(v, depth - 1, maxKeys);
     }
@@ -195,8 +870,17 @@ function truncateDeep(value: unknown, depth: number, maxKeys: number): unknown {
   if (typeof value === "string" && value.length > 400) {
     return `${value.slice(0, 400)}…`;
   }
-  return value;
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    value === null
+  ) {
+    return value;
+  }
+  return value === undefined ? null : String(value);
 }
+
 
 function summarizeRoot(json: unknown): { summary: string; namespaces: string[] } {
   if (!json || typeof json !== "object") {
@@ -217,7 +901,6 @@ function summarizeRoot(json: unknown): { summary: string; namespaces: string[] }
 function extractFieldsFromItem(item: unknown): JetCctType["fields"] {
   if (!item || typeof item !== "object") return [];
   const o = item as Record<string, unknown>;
-  // JetEngine CCT items often nest meta under `meta` or use top-level keys
   const meta =
     o.meta && typeof o.meta === "object"
       ? (o.meta as Record<string, unknown>)
@@ -298,22 +981,14 @@ export function extractJetListingGrids(html: string, base: string): JetListingGr
       if (v) settingsHints[attr] = v.slice(0, 500);
     }
 
-    // post type hints from data-settings JSON
     let postType: string | null = null;
-    const rawSettings = node.getAttribute("data-settings");
-    if (rawSettings) {
-      try {
-        const s = JSON.parse(rawSettings.replace(/"/g, '"'));
-        if (s && typeof s === "object") {
-          postType =
-            (s.post_type as string) ||
-            (s.lisitng_post_type as string) ||
-            (s.listing_post_type as string) ||
-            null;
-        }
-      } catch {
-        /* ignore */
-      }
+    const parsedSettings = parseDataSettings(node.getAttribute("data-settings"));
+    if (parsedSettings) {
+      postType =
+        strSetting(parsedSettings.post_type) ||
+        strSetting(parsedSettings.lisitng_post_type) ||
+        strSetting(parsedSettings.listing_post_type) ||
+        null;
     }
 
     const items = node.querySelectorAll(
@@ -321,6 +996,7 @@ export function extractJetListingGrids(html: string, base: string): JetListingGr
     );
     let itemTemplate: JetListingItemTemplate | null = null;
     const first = items[0];
+    let itemDynamicFields: JetDynamicField[] = [];
     if (first) {
       const itemClasses = (first.getAttribute("class") || "").split(/\s+/).filter(Boolean);
       const links = first
@@ -344,16 +1020,25 @@ export function extractJetListingGrids(html: string, base: string): JetListingGr
         );
         if (typographyHints.length >= 10) break;
       }
-      const outer = first.toString().slice(0, 2500);
+      itemDynamicFields = extractJetDynamicFields("", base, first as HTMLElement);
+      // ensure context listing_item
+      itemDynamicFields = itemDynamicFields.map((f) => ({
+        ...f,
+        context: "listing_item" as const,
+      }));
       itemTemplate = {
-        outerHtml: outer,
+        outerHtml: first.toString().slice(0, 2500),
         classes: itemClasses.slice(0, 20),
         links,
         textSample: textSample(first, 200),
         icons,
         typographyHints,
+        dynamicFields: itemDynamicFields,
       };
     }
+
+    // grid-level dynamic fields (includes all items — catalog later dedupes)
+    const gridFields = extractJetDynamicFields("", base, node as HTMLElement);
 
     grids.push({
       id: node.getAttribute("id") || idClass || listingId,
@@ -363,6 +1048,9 @@ export function extractJetListingGrids(html: string, base: string): JetListingGr
       itemCount: items.length,
       itemTemplate,
       settingsHints,
+      dynamicFields: itemDynamicFields.length
+        ? itemDynamicFields
+        : gridFields.slice(0, 40),
     });
     if (grids.length >= 30) break;
   }
@@ -387,7 +1075,6 @@ export function extractElementorSections(html: string): ElementorSection[] {
       node.getAttribute("data-element_type") ||
       null;
     const classes = (node.getAttribute("class") || "").split(/\s+/).filter(Boolean);
-    // prefer top-level sections / containers
     if (
       !elementorType &&
       !classes.some((c) =>
@@ -493,7 +1180,6 @@ export async function fetchSitemapUrls(origin: string): Promise<string[]> {
       const res = await fetchTextPublic(sm);
       if (res.status < 200 || res.status >= 400) continue;
       pushLocs(res.text);
-      // follow sitemap index children (limited)
       const childMaps = [...res.text.matchAll(/<loc>\s*([^<\s]+\.xml[^<\s]*)\s*<\/loc>/gi)]
         .map((x) => x[1])
         .slice(0, 8);
@@ -534,12 +1220,15 @@ export async function extractWordPressArchitecture(opts: {
   html: string;
   headers?: Record<string, string>;
   deep?: boolean;
+  /** probe live /wp-json and jet-cct (default true) */
+  liveRest?: boolean;
 }): Promise<WordPressArchitecture> {
   const notes: string[] = [];
   const limitations = [
     "WP/JetEngine extract je len z verejných REST endpointov a DOM — nie wp-admin, privátne CCT ani DB.",
     "CCT schémy sú odvodené z verejných záznamov / indexu; skryté polia nemusia byť vo výstupe.",
     "Elementor template JSON (postmeta) bez REST/exportu nie je dostupný 1:1.",
+    "JetEngine dynamic fields sú rekonštruované z renderovaného DOM + data-settings — nie zo skrytých query builder definícií.",
   ];
 
   let origin: string;
@@ -553,6 +1242,24 @@ export async function extractWordPressArchitecture(opts: {
   const listingGrids = extractJetListingGrids(opts.html, opts.baseUrl);
   const elementorSections = extractElementorSections(opts.html);
   const { navLinks, footerLinks } = extractNavFooterLinks(opts.html, opts.baseUrl);
+  const dynamicFields = extractJetDynamicFields(opts.html, opts.baseUrl);
+  // merge listing-only fields that might have been scoped differently
+  for (const g of listingGrids) {
+    for (const f of g.dynamicFields) {
+      const exists = dynamicFields.some(
+        (d) =>
+          d.key === f.key &&
+          d.kind === f.kind &&
+          d.sampleValue === f.sampleValue &&
+          d.elementorId === f.elementorId,
+      );
+      if (!exists) dynamicFields.push(f);
+    }
+  }
+  const dynamicFieldCatalog = buildDynamicFieldCatalog(dynamicFields);
+  if (dynamicFields.length) {
+    flags.isJetEngine = true;
+  }
 
   const rest = {
     root: null as WpRestEndpointResult | null,
@@ -563,8 +1270,9 @@ export async function extractWordPressArchitecture(opts: {
     otherEndpoints: [] as WpRestEndpointResult[],
   };
   const cctTypes: JetCctType[] = [];
+  const liveRest = opts.liveRest !== false;
 
-  // 1) REST discovery
+  if (liveRest) {
   try {
     const rootUrl = `${origin}/wp-json/`;
     const rootRes = await fetchJson(rootUrl);
@@ -588,8 +1296,10 @@ export async function extractWordPressArchitecture(opts: {
     );
   }
 
-  // pages + posts
-  for (const path of ["/wp-json/wp/v2/pages?per_page=20", "/wp-json/wp/v2/posts?per_page=10"] as const) {
+  for (const path of [
+    "/wp-json/wp/v2/pages?per_page=20",
+    "/wp-json/wp/v2/posts?per_page=10",
+  ] as const) {
     try {
       const url = `${origin}${path}`;
       const res = await fetchJson(url);
@@ -614,7 +1324,6 @@ export async function extractWordPressArchitecture(opts: {
     }
   }
 
-  // jet-cct index + types
   const jetPaths = [
     "/wp-json/jet-cct/",
     "/wp-json/jet-engine/v2/",
@@ -637,7 +1346,6 @@ export async function extractWordPressArchitecture(opts: {
         if (result.ok) {
           flags.isJetEngine = true;
           notes.push("JetEngine CCT index nájdený.");
-          // Discover CCT type routes from root routes or namespaces
           const routes =
             res.json &&
             typeof res.json === "object" &&
@@ -649,12 +1357,10 @@ export async function extractWordPressArchitecture(opts: {
             const m = r.match(/\/jet-cct\/([a-zA-Z0-9_-]+)/);
             if (m) cctSlugs.add(m[1]);
           }
-          // also try namespaces list from root
           for (const ns of rest.namespaces) {
             const m = ns.match(/^jet-cct\/([a-zA-Z0-9_-]+)/);
             if (m) cctSlugs.add(m[1]);
           }
-          // If routes empty, try common listing via HTML markers
           if (cctSlugs.size === 0) {
             const htmlCct = opts.html.matchAll(/jet-cct[_/]([a-zA-Z0-9_-]+)/gi);
             for (const m of htmlCct) cctSlugs.add(m[1]);
@@ -712,12 +1418,13 @@ export async function extractWordPressArchitecture(opts: {
     }
   }
 
-  // Extra: if namespaces include jet-cct/* discover types
   if (cctTypes.length === 0 && rest.namespaces.some((n) => n.startsWith("jet-cct"))) {
     flags.isJetEngine = true;
   }
+  } else {
+    notes.push("Live REST vypnutý — len DOM extract (listings, Elementor, nav/footer).");
+  }
 
-  // Sitemap
   let sitemapUrls: string[] = [];
   if (opts.deep !== false) {
     try {
@@ -734,6 +1441,12 @@ export async function extractWordPressArchitecture(opts: {
     notes.push(`Jet listing grids v DOM: ${listingGrids.length}.`);
     flags.isJetEngine = true;
   }
+  if (dynamicFields.length) {
+    notes.push(
+      `JetEngine dynamic fields: ${dynamicFields.length} occurrences, ${dynamicFieldCatalog.length} unique keys.`,
+    );
+    flags.isJetEngine = true;
+  }
   if (elementorSections.length) {
     notes.push(`Elementor sekcie: ${elementorSections.length}.`);
     flags.isElementor = true;
@@ -744,6 +1457,7 @@ export async function extractWordPressArchitecture(opts: {
     flags.isJetEngine ||
     flags.isElementor ||
     listingGrids.length > 0 ||
+    dynamicFields.length > 0 ||
     Boolean(rest.root?.ok);
 
   return {
@@ -754,6 +1468,8 @@ export async function extractWordPressArchitecture(opts: {
     rest,
     cctTypes,
     listingGrids,
+    dynamicFields: dynamicFields.slice(0, 120),
+    dynamicFieldCatalog,
     elementorSections,
     sitemapUrls: sitemapUrls.slice(0, 200),
     navLinks,
@@ -779,6 +1495,8 @@ function emptyArchitecture(note: string): WordPressArchitecture {
     },
     cctTypes: [],
     listingGrids: [],
+    dynamicFields: [],
+    dynamicFieldCatalog: [],
     elementorSections: [],
     sitemapUrls: [],
     navLinks: [],

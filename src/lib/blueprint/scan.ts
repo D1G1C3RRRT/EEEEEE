@@ -2,6 +2,11 @@ import { createHash } from "node:crypto";
 import { parse, type HTMLElement } from "node-html-parser";
 import { captureAssets } from "./capture-assets";
 import { detectTech } from "./detect-tech";
+import {
+  extractDesignSystem,
+  toFullWpUploadUrl,
+  type DesignSystemExtract,
+} from "./design-system";
 import { renderPageHtml } from "./render";
 import type {
   Blueprint,
@@ -13,7 +18,13 @@ import type {
   DomOutlineNode,
   ScanRequest,
 } from "./types";
+import { compileElementorFromBlueprint } from "./elementor-compiler";
+import type { ElementorTemplate } from "./elementor-compiler";
+import { extractWordPressArchitecture } from "./wordpress-jetengine";
+import type { WordPressArchitecture } from "./wordpress-jetengine";
 import { findWaybackSnapshot } from "./wayback";
+
+
 
 const MAX_HTML_BYTES = 2_500_000;
 const MAX_CSS_FILES = 12;
@@ -210,9 +221,14 @@ function extractDesign(html: string, cssBundles: string[]): DesignTokens {
   }
 
   const cssVariables: Record<string, string> = {};
-  const varRe = /(--[a-zA-Z0-9-_]+)\s*:\s*([^;}{]+)/g;
-  while ((m = varRe.exec(css)) && Object.keys(cssVariables).length < 80) {
+  // Prefer Elementor globals first (higher signal), then other vars
+  const eGlobalRe = /(--e-global-[a-zA-Z0-9-_]+)\s*:\s*([^;}{]+)/g;
+  while ((m = eGlobalRe.exec(blob)) && Object.keys(cssVariables).length < 120) {
     cssVariables[m[1]] = m[2].trim();
+  }
+  const varRe = /(--[a-zA-Z0-9-_]+)\s*:\s*([^;}{]+)/g;
+  while ((m = varRe.exec(css)) && Object.keys(cssVariables).length < 160) {
+    if (!cssVariables[m[1]]) cssVariables[m[1]] = m[2].trim();
   }
 
   const borderRadii = new Set<string>();
@@ -231,6 +247,13 @@ function extractDesign(html: string, cssBundles: string[]): DesignTokens {
   const spRe = /(?:padding|margin|gap)\s*:\s*([^;}{]+)/gi;
   while ((m = spRe.exec(css)) && spacingHints.size < 24) {
     spacingHints.add(m[1].trim());
+  }
+
+  // Enrich colors from Elementor globals
+  for (const [, val] of Object.entries(cssVariables)) {
+    if (/^#|^rgb|^hsl|^oklch/i.test(val) && colorSet.size < 64) {
+      colorSet.add(val.toLowerCase());
+    }
   }
 
   return {
@@ -312,6 +335,7 @@ function extractLinks(root: HTMLElement, base: string): BlueprintLink[] {
 }
 
 function extractForms(root: HTMLElement, base: string): BlueprintForm[] {
+  // legacy path — full classify happens in design-system extractDesignForms
   const forms: BlueprintForm[] = [];
   for (const form of root.querySelectorAll("form")) {
     const action = absUrl(base, form.getAttribute("action")) || base;
@@ -320,13 +344,18 @@ function extractForms(root: HTMLElement, base: string): BlueprintForm[] {
     for (const input of form.querySelectorAll("input, select, textarea")) {
       const name = input.getAttribute("name") || "";
       if (!name) continue;
+      const type = input.getAttribute("type") || input.tagName.toLowerCase();
+      if (type === "submit" || type === "button") continue;
       fields.push({
         name,
-        type: input.getAttribute("type") || input.tagName.toLowerCase(),
-        required: input.hasAttribute("required"),
+        type,
+        required:
+          input.hasAttribute("required") ||
+          input.getAttribute("aria-required") === "true",
+        placeholder: input.getAttribute("placeholder") || undefined,
       });
     }
-    forms.push({ action, method, fields: fields.slice(0, 40) });
+    forms.push({ action, method, fields: fields.slice(0, 40), category: "other" });
     if (forms.length >= 20) break;
   }
   return forms;
@@ -336,12 +365,19 @@ function extractAssets(root: HTMLElement, base: string): BlueprintAsset[] {
   const assets: BlueprintAsset[] = [];
   const push = (url: string | null, type: BlueprintAsset["type"]) => {
     if (!url) return;
-    if (assets.some((a) => a.url === url)) return;
-    assets.push({ url, type });
+    const normalized =
+      type === "image" && /\/wp-content\/uploads\//i.test(url)
+        ? toFullWpUploadUrl(url)
+        : url;
+    if (assets.some((a) => a.url === normalized)) return;
+    assets.push({ url: normalized, type });
   };
 
   for (const img of root.querySelectorAll("img[src]")) {
     push(absUrl(base, img.getAttribute("src")), "image");
+    push(absUrl(base, img.getAttribute("data-src")), "image");
+    push(absUrl(base, img.getAttribute("data-full-url")), "image");
+    push(absUrl(base, img.getAttribute("data-large_image")), "image");
   }
   for (const s of root.querySelectorAll("script[src]")) {
     push(absUrl(base, s.getAttribute("src")), "script");
@@ -353,7 +389,7 @@ function extractAssets(root: HTMLElement, base: string): BlueprintAsset[] {
     push(absUrl(base, l.getAttribute("href")), "icon");
   }
   for (const img of root.querySelectorAll("img[srcset], source[srcset]")) {
-    const srcset = img.getAttribute("srcset") || "";
+    const srcset = img.getAttribute("srcset") || img.getAttribute("data-srcset") || "";
     for (const part of srcset.split(",")) {
       const u = part.trim().split(/\s+/)[0];
       push(absUrl(base, u), "image");
@@ -623,6 +659,12 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
   const wantRender = input.render !== false;
   const wantWayback = input.wayback !== false;
   const wantAssets = input.captureAssets !== false;
+  // WP/JetEngine deep extract: default ON for URL, OFF for pure HTML unless set
+  const wantWp =
+    input.wpJetEngine !== undefined
+      ? input.wpJetEngine
+      : Boolean(input.url?.trim());
+
 
   const notes: string[] = [];
   const limitations = [
@@ -630,7 +672,9 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
     "Headless render pomáha pri SPA, ale stále nevidí dáta za loginom ani WebSocket/API payloady.",
     "Crawl je same-origin s limitom stránok; asset capture má limity veľkosti.",
     "Lokálne URL (localhost) skenuj cez „Vložiť HTML“.",
+    "WP/JetEngine mód číta len verejné REST endpointy a DOM (nie wp-admin / privátne CCT).",
   ];
+
 
   let source: Blueprint["source"] = "url";
   let sourceUrl: string | null = null;
@@ -713,6 +757,92 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
     contentType,
   );
 
+  // CSS & Design System extract (Elementor globals, typography, full images, forms)
+  const designSystem: DesignSystemExtract = extractDesignSystem(
+    primary.html,
+    base,
+    primary.cssBundles.map((b) => b.css),
+  );
+  primary.design = {
+    ...primary.design,
+    elementorGlobals: designSystem.elementor,
+    typography: designSystem.typography,
+    fullImageUrls: designSystem.fullImageUrls,
+    cssVariables: {
+      ...primary.design.cssVariables,
+      ...designSystem.elementor.raw,
+    },
+    colors: [
+      ...new Set([
+        ...primary.design.colors,
+        ...Object.values(designSystem.elementor.colors).filter((v) =>
+          /^#|^rgb|^hsl|^oklch/i.test(v),
+        ),
+      ]),
+    ].slice(0, 64),
+  };
+  // Prefer classified interactive forms
+  if (designSystem.forms.length) {
+    primary.forms = designSystem.forms.map((f) => ({
+      action: f.action,
+      method: f.method,
+      fields: f.fields,
+      category: f.category,
+      id: f.id,
+      classes: f.classes,
+      submitText: f.submitText,
+      confidence: f.confidence,
+      evidence: f.evidence,
+    }));
+  }
+  // Prefer full-res WP images in assets
+  for (const full of designSystem.fullImageUrls) {
+    if (!primary.assets.some((a) => a.url === full)) {
+      primary.assets.push({ url: full, type: "image" });
+    }
+  }
+  notes.push(...designSystem.notes);
+
+  // WordPress + JetEngine architecture extract (REST + listing + Elementor + sitemap)
+  let wordpress: WordPressArchitecture | null = null;
+  if (wantWp && source !== "html") {
+    try {
+      wordpress = await extractWordPressArchitecture({
+        baseUrl: base,
+        html: primary.html,
+        headers: primary.headers,
+        deep: true,
+      });
+      notes.push(...wordpress.notes);
+      for (const l of wordpress.limitations) {
+        if (!limitations.includes(l)) limitations.push(l);
+      }
+      if (wordpress.detected) {
+        notes.push(
+          `WP/JetEngine clone extract: WP=${wordpress.isWordPress} Jet=${wordpress.isJetEngine} Elementor=${wordpress.isElementor}; CCT=${wordpress.cctTypes.length}; listings=${wordpress.listingGrids.length}.`,
+        );
+      }
+    } catch (err) {
+      notes.push(
+        `WP/JetEngine extract zlyhal: ${err instanceof Error ? err.message : "error"}`,
+      );
+    }
+  } else if (wantWp && source === "html") {
+    // HTML-only: DOM listing/Elementor (no live REST/sitemap unless explicitly URL scan)
+    try {
+      wordpress = await extractWordPressArchitecture({
+        baseUrl: base,
+        html: primary.html,
+        headers: primary.headers,
+        deep: false,
+        liveRest: false,
+      });
+      notes.push(...wordpress.notes.slice(0, 6));
+    } catch {
+      wordpress = null;
+    }
+  }
+
   // Crawl same-origin pages
   const pages: BlueprintPage[] = [];
   const allLinks = [...primary.links];
@@ -727,18 +857,42 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
     const origin = new URL(base).origin;
     const queue: string[] = [];
     const seen = new Set<string>([normalizePageUrl(base)]);
+
+    const enqueue = (href: string, priority = false) => {
+      try {
+        if (new URL(href).origin !== origin) return;
+      } catch {
+        return;
+      }
+      const n = normalizePageUrl(href);
+      if (seen.has(n)) return;
+      // skip pure media / feeds
+      if (/\.(jpg|jpeg|png|gif|webp|svg|pdf|zip|xml|css|js)(\?|$)/i.test(n)) return;
+      seen.add(n);
+      if (priority) queue.unshift(n);
+      else queue.push(n);
+    };
+
+    // Priority seeds: nav + footer + sitemap (WP clone completeness)
+    if (wordpress) {
+      for (const u of wordpress.navLinks) enqueue(u, true);
+      for (const u of wordpress.footerLinks) enqueue(u, true);
+      for (const u of wordpress.sitemapUrls) enqueue(u, false);
+      // REST page links
+      const restPages = wordpress.rest.pages?.data;
+      if (Array.isArray(restPages)) {
+        for (const p of restPages) {
+          if (p && typeof p === "object" && "link" in p) {
+            const link = (p as { link?: string }).link;
+            if (link) enqueue(link, true);
+          }
+        }
+      }
+    }
+
     for (const l of primary.links) {
       if (!l.internal) continue;
-      try {
-        if (new URL(l.href).origin !== origin) continue;
-      } catch {
-        continue;
-      }
-      const n = normalizePageUrl(l.href);
-      if (!seen.has(n)) {
-        seen.add(n);
-        queue.push(n);
-      }
+      enqueue(l.href, false);
     }
 
     while (queue.length && pages.length < maxPages - 1) {
@@ -766,42 +920,42 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
         });
         for (const l of parsed.links) {
           allLinks.push(l);
-          if (l.internal) {
-            try {
-              if (new URL(l.href).origin === origin) {
-                const n = normalizePageUrl(l.href);
-                if (!seen.has(n) && seen.size < maxPages * 3) {
-                  seen.add(n);
-                  queue.push(n);
-                }
-              }
-            } catch {
-              /* ignore */
-            }
-          }
+          if (l.internal) enqueue(l.href, false);
         }
         allForms.push(...parsed.forms);
         allAssets.push(...parsed.assets);
         allScripts.push(...parsed.scripts);
         allStyles.push(...parsed.stylesheets);
         allCss = allCss.concat(parsed.cssBundles);
-        // merge design colors/fonts
         mergedDesign = {
-          colors: [...new Set([...mergedDesign.colors, ...parsed.design.colors])].slice(0, 48),
+          colors: [...new Set([...mergedDesign.colors, ...parsed.design.colors])].slice(0, 64),
           fonts: [...new Set([...mergedDesign.fonts, ...parsed.design.fonts])].slice(0, 24),
           cssVariables: { ...parsed.design.cssVariables, ...mergedDesign.cssVariables },
           borderRadii: [...new Set([...mergedDesign.borderRadii, ...parsed.design.borderRadii])].slice(0, 20),
           shadows: [...new Set([...mergedDesign.shadows, ...parsed.design.shadows])].slice(0, 16),
           spacingHints: [...new Set([...mergedDesign.spacingHints, ...parsed.design.spacingHints])].slice(0, 24),
+          elementorGlobals: mergedDesign.elementorGlobals,
+          typography: mergedDesign.typography,
+          fullImageUrls: [
+            ...new Set([
+              ...(mergedDesign.fullImageUrls || []),
+              ...(parsed.design.fullImageUrls || []),
+            ]),
+          ].slice(0, 200),
         };
       } catch {
         /* skip page */
       }
     }
     if (pages.length) {
-      notes.push(`Crawl: ${pages.length + 1} same-origin stránok (limit ${maxPages}).`);
+      notes.push(
+        `Crawl: ${pages.length + 1} same-origin stránok (limit ${maxPages})${
+          wordpress?.sitemapUrls.length ? " + sitemap/nav seed" : ""
+        }.`,
+      );
     }
   }
+
 
   // dedupe links/assets
   const linkSeen = new Set<string>();
@@ -834,6 +988,34 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
     scripts: [...new Set(allScripts)],
   });
 
+  // Enrich tech from WP architecture flags
+  if (wordpress?.isWordPress && !tech.some((t) => t.name === "WordPress")) {
+    tech.push({
+
+      name: "WordPress",
+      confidence: "high",
+      evidence: wordpress.rest.root?.ok ? "WP REST /wp-json" : "WP markers",
+    });
+  }
+  if (wordpress?.isJetEngine && !tech.some((t) => t.name === "JetEngine")) {
+    tech.push({
+      name: "JetEngine",
+      confidence: "high",
+      evidence:
+        wordpress.cctTypes.length > 0
+          ? `CCT types: ${wordpress.cctTypes.map((c) => c.slug).slice(0, 5).join(", ")}`
+          : `${wordpress.listingGrids.length} listing grid(s)`,
+    });
+  }
+  if (wordpress?.isElementor && !tech.some((t) => t.name === "Elementor")) {
+    tech.push({
+      name: "Elementor",
+      confidence: "high",
+      evidence: `${wordpress.elementorSections.length} sections with data-id`,
+    });
+  }
+
+
   const idLabel =
     (sourceUrl &&
       (() => {
@@ -864,7 +1046,7 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
 
   const blueprint: Blueprint = {
     id: makeId(idLabel),
-    version: "1.1.0",
+    version: "1.2.0",
     createdAt: new Date().toISOString(),
     source,
     sourceUrl,
@@ -891,9 +1073,12 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
       render: wantRender && source === "url",
       wayback: wantWayback,
       captureAssets: wantAssets,
+      wpJetEngine: wantWp,
     },
     waybackUrl,
     rendered,
+    wordpress,
+    elementorTemplate: null,
     stats: {
       htmlBytes: Buffer.byteLength(primary.html, "utf8"),
       assetCount: assets.length,
@@ -910,5 +1095,22 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
     limitations,
   };
 
+  // Elementor DOM → importable template JSON
+  try {
+    const tpl = compileElementorFromBlueprint(blueprint);
+    blueprint.elementorTemplate = tpl;
+    notes.push(
+      `Elementor template compiled: ${tpl._blueprint?.widgetCount ?? 0} widgets, ${tpl.content.length} top containers.`,
+    );
+  } catch (err) {
+    notes.push(
+      `Elementor compile zlyhal: ${err instanceof Error ? err.message : "error"}`,
+    );
+    blueprint.elementorTemplate = null;
+  }
+  blueprint.notes = notes;
+  blueprint.stats.scanMs = Date.now() - started;
+
   return blueprint;
 }
+

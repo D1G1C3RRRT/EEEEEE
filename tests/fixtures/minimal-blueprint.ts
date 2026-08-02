@@ -65,9 +65,12 @@ export function makeMinimalBlueprint(overrides: Partial<Blueprint> = {}): Bluepr
       render: false,
       wayback: false,
       captureAssets: true,
+      wpJetEngine: false,
     },
     waybackUrl: null,
     rendered: false,
+    wordpress: null,
+    elementorTemplate: null,
     stats: {
       htmlBytes: 128,
       assetCount: 1,

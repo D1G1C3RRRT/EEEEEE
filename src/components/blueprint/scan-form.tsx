@@ -9,6 +9,7 @@ import {
   Layers,
   Archive,
   Package,
+  Blocks,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +40,7 @@ export function ScanForm({ onScanned, busy, setBusy }: Props) {
   const [render, setRender] = useState(true);
   const [wayback, setWayback] = useState(true);
   const [captureAssets, setCaptureAssets] = useState(true);
+  const [wpJetEngine, setWpJetEngine] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [localBusy, setLocalBusy] = useState(false);
   const isBusy = busy ?? localBusy;
@@ -61,6 +63,7 @@ export function ScanForm({ onScanned, busy, setBusy }: Props) {
                 render,
                 wayback,
                 captureAssets,
+                wpJetEngine,
               }
             : {
                 html,
@@ -69,6 +72,7 @@ export function ScanForm({ onScanned, busy, setBusy }: Props) {
                 maxPages: 1,
                 render: false,
                 wayback: false,
+                wpJetEngine,
               },
       });
       if (!result.ok) {
@@ -89,8 +93,8 @@ export function ScanForm({ onScanned, busy, setBusy }: Props) {
       <div className="mb-5 flex flex-col gap-1">
         <h2 className="text-lg font-semibold tracking-tight">Skenovať projekt</h2>
         <p className="text-sm text-fg-muted">
-          Verejný frontend snapshot: HTML/CSS, multi-page crawl, headless SPA render,
-          Wayback fallback, assety do ZIP. Nie je to klon servera ani databázy.
+          Verejný frontend snapshot + voliteľný WordPress/JetEngine clone extract
+          (REST, CCT, listing grids, Elementor, sitemap). Nie je to klon servera ani DB.
         </p>
       </div>
 
@@ -210,11 +214,29 @@ export function ScanForm({ onScanned, busy, setBusy }: Props) {
             <span className="block text-xs text-fg-muted">do ZIP exportu</span>
           </span>
         </label>
-        <label className="flex items-center gap-2.5 rounded-[var(--radius-md)] border border-border bg-bg-subtle/50 px-3 py-2.5 text-sm">
+        <label className="flex items-center gap-2.5 rounded-[var(--radius-md)] border border-accent/40 bg-accent/5 px-3 py-2.5 text-sm">
+          <input
+            type="checkbox"
+            className="size-4 accent-fg"
+            checked={wpJetEngine}
+            disabled={isBusy}
+            onChange={(e) => setWpJetEngine(e.target.checked)}
+          />
+          <Blocks className="size-3.5 text-fg-muted shrink-0" />
+          <span className="min-w-0">
+            <span className="font-medium text-fg">WP / JetEngine clone</span>
+            <span className="block text-xs text-fg-muted">
+              REST · CCT · listings · Elementor · sitemap
+            </span>
+          </span>
+        </label>
+        <label className="flex items-center gap-2.5 rounded-[var(--radius-md)] border border-border bg-bg-subtle/50 px-3 py-2.5 text-sm sm:col-span-2">
           <Layers className="size-3.5 text-fg-muted shrink-0" />
           <span className="min-w-0 flex-1">
             <span className="font-medium text-fg">Crawl stránok</span>
-            <span className="block text-xs text-fg-muted">same-origin, 1–20</span>
+            <span className="block text-xs text-fg-muted">
+              same-origin 1–20 · pri WP seed z nav/footer/sitemap
+            </span>
           </span>
           <Input
             type="number"

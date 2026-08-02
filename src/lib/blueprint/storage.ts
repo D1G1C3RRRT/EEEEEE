@@ -1,4 +1,9 @@
 import type { Blueprint } from "./types";
+import {
+  compileElementorFromBlueprint,
+  exportElementorTemplateJson,
+  exportElementorTemplateJsonWithMeta,
+} from "./elementor-compiler";
 
 const KEY = "blueprint.vault.v1";
 
@@ -30,7 +35,6 @@ function writeAll(items: Blueprint[]) {
     localStorage.setItem(KEY, JSON.stringify(trimmed));
   } catch {
     try {
-      // drop base64 to fit quota
       const slim = trimmed.slice(0, 5).map((bp) => ({
         ...bp,
         assets: bp.assets.map(({ base64, ...rest }) => rest),
@@ -88,10 +92,19 @@ function base64ToUint8(b64: string): Uint8Array {
   return out;
 }
 
+export function downloadElementorTemplate(bp: Blueprint) {
+  const tpl = bp.elementorTemplate || compileElementorFromBlueprint(bp);
+  downloadText(
+    "elementor-template-import.json",
+    exportElementorTemplateJson(tpl),
+    "application/json",
+  );
+  return tpl;
+}
+
 export async function exportBlueprintZip(bp: Blueprint) {
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
-  // avoid duplicating huge base64 in json inside zip — keep slim copy
   const slimAssets = bp.assets.map(({ base64, ...rest }) => rest);
   zip.file(
     "blueprint.json",
@@ -111,6 +124,10 @@ export async function exportBlueprintZip(bp: Blueprint) {
       `- Pages: ${bp.stats?.pageCount ?? 1}`,
       `- Rendered: ${bp.rendered ? "yes" : "no"}`,
       bp.waybackUrl ? `- Wayback: ${bp.waybackUrl}` : "",
+      "",
+      "## Elementor",
+      "- Import file: `elementor-template-import.json`",
+      "- WP: Templates → Saved Templates → Import Templates",
       "",
       "## Limitations",
       ...(bp.limitations || []).map((l) => `- ${l}`),
@@ -134,21 +151,31 @@ export async function exportBlueprintZip(bp: Blueprint) {
     cssDir?.file(name, b.css);
   });
 
-  // captured binary assets
   for (const a of bp.assets) {
     if (!a.captured || !a.base64 || !a.path) continue;
     try {
       zip.file(a.path, base64ToUint8(a.base64));
     } catch {
-      /* skip bad base64 */
+      /* skip */
     }
   }
 
   if (bp.pages?.length) {
+    zip.file("pages.json", JSON.stringify(bp.pages, null, 2));
+  }
+
+  try {
+    const tpl = bp.elementorTemplate || compileElementorFromBlueprint(bp);
     zip.file(
-      "pages.json",
-      JSON.stringify(bp.pages, null, 2),
+      "elementor-template-import.json",
+      exportElementorTemplateJson(tpl),
     );
+    zip.file(
+      "elementor-template-with-meta.json",
+      exportElementorTemplateJsonWithMeta(tpl),
+    );
+  } catch {
+    /* skip */
   }
 
   zip.file(
@@ -164,6 +191,7 @@ export async function exportBlueprintZip(bp: Blueprint) {
         design: bp.design,
         tech: bp.tech,
         pages: bp.pages,
+        hasElementorTemplate: Boolean(bp.elementorTemplate),
       },
       null,
       2,

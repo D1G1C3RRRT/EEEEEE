@@ -21,7 +21,7 @@ describe("scanToBlueprint · HTML mode", () => {
   it("builds a complete blueprint from pasted HTML", async () => {
     const bp = await scanToBlueprint({ ...baseOpts });
 
-    expect(bp.version).toBe("1.1.0");
+    expect(bp.version).toBe("1.2.0");
     expect(bp.source).toBe("html");
     expect(bp.id).toMatch(/^BLUEPRINT_/);
     expect(bp.contentHash).toMatch(/^[a-f0-9]{64}$/);

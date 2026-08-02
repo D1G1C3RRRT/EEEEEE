@@ -19,6 +19,8 @@ import {
   Bot,
   Archive,
   Files,
+  Blocks,
+  LayoutGrid,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   downloadText,
+  downloadElementorTemplate,
   exportBlueprintJson,
   exportBlueprintZip,
 } from "@/lib/blueprint/storage";
@@ -105,6 +108,17 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
     toast.success("JSON stiahnutý");
   }
 
+  function downloadElementor() {
+    try {
+      const tpl = downloadElementorTemplate(blueprint);
+      toast.success(
+        `Elementor template: ${tpl._blueprint?.widgetCount ?? "?"} widgetov`,
+      );
+    } catch {
+      toast.error("Elementor export zlyhal");
+    }
+  }
+
   async function downloadZip() {
     setZipping(true);
     try {
@@ -135,6 +149,12 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
                 <Badge variant="warning">
                   <Archive className="size-3 mr-1" />
                   wayback
+                </Badge>
+              )}
+              {blueprint.wordpress?.detected && (
+                <Badge variant="success">
+                  <Blocks className="size-3 mr-1" />
+                  WP/Jet
                 </Badge>
               )}
               {blueprint.statusCode != null && (
@@ -174,6 +194,10 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
             <Button variant="secondary" size="sm" onClick={downloadJson}>
               <FileJson className="size-3.5" />
               Stiahnuť JSON
+            </Button>
+            <Button variant="secondary" size="sm" onClick={downloadElementor}>
+              <LayoutGrid className="size-3.5" />
+              Elementor JSON
             </Button>
             <Button
               variant="default"
@@ -221,6 +245,8 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
         <div className="overflow-x-auto -mx-1 px-1">
           <TabsList>
             <TabsTrigger value="overview">Prehľad</TabsTrigger>
+            <TabsTrigger value="wordpress">WP / JetEngine</TabsTrigger>
+            <TabsTrigger value="elementor">Elementor JSON</TabsTrigger>
             <TabsTrigger value="design">Dizajn</TabsTrigger>
             <TabsTrigger value="structure">Štruktúra</TabsTrigger>
             <TabsTrigger value="pages">Stránky</TabsTrigger>
@@ -273,7 +299,7 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
                   label="Options"
                   value={
                     blueprint.options
-                      ? `pages=${blueprint.options.maxPages}, render=${blueprint.options.render}, wayback=${blueprint.options.wayback}, assets=${blueprint.options.captureAssets}`
+                      ? `pages=${blueprint.options.maxPages}, render=${blueprint.options.render}, wayback=${blueprint.options.wayback}, assets=${blueprint.options.captureAssets}, wp=${blueprint.options.wpJetEngine ?? false}`
                       : "—"
                   }
                 />
@@ -303,7 +329,462 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
           </Card>
         </TabsContent>
 
+        <TabsContent value="wordpress" className="space-y-4">
+          {!blueprint.wordpress ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Blocks className="size-4" />
+                  WP / JetEngine
+                </CardTitle>
+                <CardDescription>
+                  Zapni „WP / JetEngine clone“ pri skene URL pre REST + listing + Elementor extract.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  {
+                    label: "WordPress",
+                    on: blueprint.wordpress.isWordPress,
+                  },
+                  {
+                    label: "JetEngine",
+                    on: blueprint.wordpress.isJetEngine,
+                  },
+                  {
+                    label: "Elementor",
+                    on: blueprint.wordpress.isElementor,
+                  },
+                  {
+                    label: "Detected",
+                    on: blueprint.wordpress.detected,
+                  },
+                ].map((f) => (
+                  <div
+                    key={f.label}
+                    className="rounded-[var(--radius-md)] border border-border bg-bg-subtle/80 px-3 py-2.5"
+                  >
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-fg-subtle">
+                      {f.label}
+                    </div>
+                    <div className="mt-1 text-sm font-semibold">
+                      {f.on ? "áno" : "nie"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>REST API discovery</CardTitle>
+                  <CardDescription>
+                    /wp-json · pages · jet-cct — verejné endpointy
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                  {[
+                    blueprint.wordpress.rest.root,
+                    blueprint.wordpress.rest.pages,
+                    blueprint.wordpress.rest.posts,
+                    blueprint.wordpress.rest.jetCctIndex,
+                    ...blueprint.wordpress.rest.otherEndpoints,
+                  ]
+                    .filter(Boolean)
+                    .map((ep) => (
+                      <div
+                        key={ep!.path}
+                        className="flex flex-col gap-1 rounded-[var(--radius-sm)] border border-border bg-bg-subtle/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-medium mono text-xs break-all">
+                            {ep!.path}
+                          </div>
+                          <div className="text-xs text-fg-muted">{ep!.summary}</div>
+                        </div>
+                        <Badge variant={ep!.ok ? "success" : "danger"}>
+                          {ep!.status ?? "—"}
+                        </Badge>
+                      </div>
+                    ))}
+                  {blueprint.wordpress.rest.namespaces.length > 0 && (
+                    <p className="text-xs text-fg-muted pt-1">
+                      Namespaces:{" "}
+                      {blueprint.wordpress.rest.namespaces.slice(0, 12).join(", ")}
+                      {blueprint.wordpress.rest.namespaces.length > 12
+                        ? "…"
+                        : ""}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>JetEngine CCT typy</CardTitle>
+                  <CardDescription>
+                    Schéma polí odvodená z verejných záznamov
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {blueprint.wordpress.cctTypes.length === 0 && (
+                    <p className="text-sm text-fg-muted">
+                      Žiadne verejné CCT typy (endpoint nedostupný alebo prázdny).
+                    </p>
+                  )}
+                  {blueprint.wordpress.cctTypes.map((cct) => (
+                    <div
+                      key={cct.slug}
+                      className="rounded-[var(--radius-sm)] border border-border bg-bg-subtle/60 px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold">{cct.slug}</span>
+                        <Badge variant="default">{cct.endpoint}</Badge>
+                        {cct.itemCount != null && (
+                          <Badge variant="info">{cct.itemCount} items</Badge>
+                        )}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {cct.fields.slice(0, 24).map((f) => (
+                          <span
+                            key={f.name}
+                            className="rounded-full border border-border bg-bg px-2 py-0.5 text-[11px] mono text-fg-muted"
+                          >
+                            {f.name}
+                            {f.type ? `:${f.type}` : ""}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <LayoutGrid className="size-4" />
+                    Jet listing grids
+                  </CardTitle>
+                  <CardDescription>
+                    DOM reverse-engineering opakovaných item templateov + dynamic fields
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {blueprint.wordpress.listingGrids.length === 0 && (
+                    <p className="text-sm text-fg-muted">Žiadne jet-listing-grid v DOM.</p>
+                  )}
+                  {blueprint.wordpress.listingGrids.map((g, i) => (
+                    <div
+                      key={`${g.id}-${i}`}
+                      className="rounded-[var(--radius-sm)] border border-border bg-bg-subtle/60 px-3 py-2 text-sm"
+                    >
+                      <div className="font-medium">
+                        {g.id || `grid-${i + 1}`}
+                        {g.listingId ? (
+                          <span className="text-fg-muted"> · listing {g.listingId}</span>
+                        ) : null}
+                      </div>
+                      <div className="text-xs text-fg-muted mt-0.5">
+                        items={g.itemCount}
+                        {g.postType ? ` · post_type=${g.postType}` : ""}
+                        {g.dynamicFields?.length
+                          ? ` · ${g.dynamicFields.length} dyn. fields`
+                          : ""}
+                      </div>
+                      {g.itemTemplate && (
+                        <div className="mt-2 space-y-1 text-xs">
+                          <p className="text-fg-muted">
+                            Sample: {g.itemTemplate.textSample || "—"}
+                          </p>
+                          {g.itemTemplate.typographyHints.slice(0, 4).map((t) => (
+                            <div key={t} className="mono text-fg-subtle truncate">
+                              {t}
+                            </div>
+                          ))}
+                          {(g.itemTemplate.dynamicFields || []).length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {g.itemTemplate.dynamicFields.slice(0, 12).map((f, fi) => (
+                                <Badge key={`${f.key}-${fi}`} variant="info">
+                                  {f.kind}:{f.key}
+                                  {f.metaKey ? `=${f.metaKey}` : ""}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FormInput className="size-4" />
+                    JetEngine dynamic fields
+                  </CardTitle>
+                  <CardDescription>
+                    field · link · image · terms · meta — z DOM + data-settings
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(blueprint.wordpress.dynamicFieldCatalog || []).length === 0 &&
+                    (blueprint.wordpress.dynamicFields || []).length === 0 && (
+                      <p className="text-sm text-fg-muted">
+                        Žiadne jet-listing-dynamic-* v DOM.
+                      </p>
+                    )}
+                  {(blueprint.wordpress.dynamicFieldCatalog || []).length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase tracking-wide text-fg-subtle">
+                        Katalóg ({blueprint.wordpress.dynamicFieldCatalog.length})
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {blueprint.wordpress.dynamicFieldCatalog.map((c) => (
+                          <span
+                            key={`${c.kind}:${c.key}`}
+                            className="rounded-full border border-border bg-bg px-2 py-0.5 text-[11px] mono text-fg-muted"
+                            title={c.sampleValues.join(" · ")}
+                          >
+                            <span className="text-info">{c.kind}</span>:{c.key}
+                            {c.metaKey ? (
+                              <span className="text-fg-subtle"> meta={c.metaKey}</span>
+                            ) : null}
+                            <span className="text-fg-subtle"> ×{c.occurrences}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <ScrollArea className="h-48">
+                    <div className="space-y-2 pr-3">
+                      {(blueprint.wordpress.dynamicFields || []).slice(0, 40).map((f, i) => (
+                        <div
+                          key={`${f.key}-${i}`}
+                          className="rounded-[var(--radius-sm)] border border-border/70 bg-bg px-2.5 py-2 text-xs"
+                        >
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge variant="accent">{f.kind}</Badge>
+                            <span className="font-medium mono">{f.key}</span>
+                            <Badge variant="default">{f.source}</Badge>
+                            <Badge variant={confVariant(f.confidence)}>{f.confidence}</Badge>
+                            <span className="text-fg-subtle">{f.context}</span>
+                          </div>
+                          <div className="mt-1 text-fg-muted">
+                            {f.sampleValue || f.sampleUrl || "—"}
+                          </div>
+                          <div className="mt-0.5 mono text-[10px] text-fg-subtle">
+                            {f.evidence}
+                            {f.formatHints?.length
+                              ? ` · ${f.formatHints.slice(0, 3).join(", ")}`
+                              : ""}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Elementor sekcie</CardTitle>
+                  <CardDescription>data-id · role · headings</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {blueprint.wordpress.elementorSections.length === 0 && (
+                    <p className="text-sm text-fg-muted">Žiadne Elementor sekcie.</p>
+                  )}
+                  {blueprint.wordpress.elementorSections.slice(0, 20).map((s, i) => (
+                    <div
+                      key={`${s.dataId}-${i}`}
+                      className="flex flex-wrap items-start justify-between gap-2 rounded-[var(--radius-sm)] border border-border bg-bg-subtle/60 px-3 py-2 text-sm"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-medium mono text-xs">
+                          {s.dataId || "no-id"}
+                          {s.elementorType ? ` · ${s.elementorType}` : ""}
+                        </div>
+                        <div className="text-xs text-fg-muted truncate max-w-[420px]">
+                          {s.headings.join(" · ") || s.classes.slice(0, 3).join(" ")}
+                        </div>
+                      </div>
+                      <Badge variant="default">{s.role}</Badge>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Crawl seed (nav / footer / sitemap)</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3 sm:grid-cols-3 text-xs">
+                  <div>
+                    <div className="font-medium mb-1">Nav ({blueprint.wordpress.navLinks.length})</div>
+                    <ul className="space-y-0.5 text-fg-muted mono break-all">
+                      {blueprint.wordpress.navLinks.slice(0, 8).map((u) => (
+                        <li key={u}>{u}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="font-medium mb-1">
+                      Footer ({blueprint.wordpress.footerLinks.length})
+                    </div>
+                    <ul className="space-y-0.5 text-fg-muted mono break-all">
+                      {blueprint.wordpress.footerLinks.slice(0, 8).map((u) => (
+                        <li key={u}>{u}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="font-medium mb-1">
+                      Sitemap ({blueprint.wordpress.sitemapUrls.length})
+                    </div>
+                    <ul className="space-y-0.5 text-fg-muted mono break-all">
+                      {blueprint.wordpress.sitemapUrls.slice(0, 8).map((u) => (
+                        <li key={u}>{u}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="elementor" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <LayoutGrid className="size-4" />
+                Elementor DOM → Template Compiler
+              </CardTitle>
+              <CardDescription>
+                Import: Šablóny → Uložené šablóny → Importovať šablóny →{" "}
+                <span className="mono">elementor-template-import.json</span>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {blueprint.elementorTemplate ? (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="rounded-[var(--radius-md)] border border-border bg-bg-subtle/80 px-3 py-2">
+                      <div className="text-[11px] uppercase text-fg-subtle">Widgets</div>
+                      <div className="font-semibold tabular-nums">
+                        {blueprint.elementorTemplate._blueprint?.widgetCount ?? "—"}
+                      </div>
+                    </div>
+                    <div className="rounded-[var(--radius-md)] border border-border bg-bg-subtle/80 px-3 py-2">
+                      <div className="text-[11px] uppercase text-fg-subtle">Nodes</div>
+                      <div className="font-semibold tabular-nums">
+                        {blueprint.elementorTemplate._blueprint?.nodeCount ?? "—"}
+                      </div>
+                    </div>
+                    <div className="rounded-[var(--radius-md)] border border-border bg-bg-subtle/80 px-3 py-2">
+                      <div className="text-[11px] uppercase text-fg-subtle">Top</div>
+                      <div className="font-semibold tabular-nums">
+                        {blueprint.elementorTemplate.content.length}
+                      </div>
+                    </div>
+                    <div className="rounded-[var(--radius-md)] border border-border bg-bg-subtle/80 px-3 py-2">
+                      <div className="text-[11px] uppercase text-fg-subtle">Version</div>
+                      <div className="font-semibold">
+                        {blueprint.elementorTemplate.version}
+                      </div>
+                    </div>
+                  </div>
+                  <ul className="text-xs text-fg-muted space-y-1">
+                    {(blueprint.elementorTemplate._blueprint?.notes || []).map((n) => (
+                      <li key={n}>– {n}</li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" onClick={downloadElementor}>
+                      <Download className="size-3.5" />
+                      Stiahnuť elementor-template-import.json
+                    </Button>
+                  </div>
+                  <ScrollArea className="h-72 rounded-[var(--radius-md)] border border-border">
+                    <pre className="p-3 text-[11px] mono text-fg-muted whitespace-pre-wrap break-all">
+                      {JSON.stringify(
+                        {
+                          version: blueprint.elementorTemplate.version,
+                          title: blueprint.elementorTemplate.title,
+                          type: blueprint.elementorTemplate.type,
+                          content: blueprint.elementorTemplate.content.slice(0, 3),
+                          page_settings: blueprint.elementorTemplate.page_settings,
+                          _truncated:
+                            blueprint.elementorTemplate.content.length > 3
+                              ? `+${blueprint.elementorTemplate.content.length - 3} top nodes`
+                              : undefined,
+                        },
+                        null,
+                        2,
+                      )}
+                    </pre>
+                  </ScrollArea>
+                </>
+              ) : (
+                <p className="text-sm text-fg-muted">
+                  Template ešte nie je skompilovaný. Spusti nový sken.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="design" className="space-y-4">
+          {blueprint.design.elementorGlobals &&
+            Object.keys(blueprint.design.elementorGlobals.colors).length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Palette className="size-4" />
+                    Elementor global colors
+                  </CardTitle>
+                  <CardDescription>
+                    --e-global-color-* z{" "}
+                    <span className="mono">elementor-frontend-inline-css</span>
+                    {blueprint.design.elementorGlobals.styleIds.length
+                      ? ` (${blueprint.design.elementorGlobals.styleIds.join(", ")})`
+                      : ""}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(blueprint.design.elementorGlobals.colors)
+                      .slice(0, 40)
+                      .map(([k, v]) => (
+                        <div
+                          key={k}
+                          className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-border bg-bg-subtle px-2 py-1.5"
+                          title={`${k}: ${v}`}
+                        >
+                          <span
+                            className="size-5 rounded-[var(--radius-xs)] border border-border-strong shrink-0"
+                            style={{ background: v }}
+                          />
+                          <div className="min-w-0">
+                            <div className="mono text-[10px] text-fg-subtle truncate max-w-[140px]">
+                              {k.replace("--e-global-color-", "")}
+                            </div>
+                            <div className="mono text-[11px] text-fg-muted truncate max-w-[140px]">
+                              {v}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -335,6 +816,51 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
             </CardContent>
           </Card>
 
+          {blueprint.design.typography && blueprint.design.typography.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Typografia (h1–h4, body, button)</CardTitle>
+                <CardDescription>
+                  font-family · size · weight · line-height · letter-spacing
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-fg-subtle border-b border-border">
+                        <th className="py-1.5 pr-2 font-medium">Sel</th>
+                        <th className="py-1.5 pr-2 font-medium">Family</th>
+                        <th className="py-1.5 pr-2 font-medium">Size</th>
+                        <th className="py-1.5 pr-2 font-medium">Weight</th>
+                        <th className="py-1.5 pr-2 font-medium">LH</th>
+                        <th className="py-1.5 pr-2 font-medium">LS</th>
+                        <th className="py-1.5 font-medium">Src</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {blueprint.design.typography.map((t) => (
+                        <tr key={t.selector} className="border-b border-border/50">
+                          <td className="py-1.5 pr-2 mono font-medium">{t.selector}</td>
+                          <td className="py-1.5 pr-2 mono text-fg-muted max-w-[120px] truncate">
+                            {t.fontFamily || "—"}
+                          </td>
+                          <td className="py-1.5 pr-2 mono">{t.fontSize || "—"}</td>
+                          <td className="py-1.5 pr-2 mono">{t.fontWeight || "—"}</td>
+                          <td className="py-1.5 pr-2 mono">{t.lineHeight || "—"}</td>
+                          <td className="py-1.5 pr-2 mono">{t.letterSpacing || "—"}</td>
+                          <td className="py-1.5">
+                            <Badge variant="default">{t.source}</Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader>
@@ -354,18 +880,27 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
             <Card>
               <CardHeader>
                 <CardTitle>CSS premenné</CardTitle>
+                <CardDescription>vrátane --e-global-*</CardDescription>
               </CardHeader>
               <CardContent>
                 <ScrollArea className="h-48">
                   <div className="space-y-1 pr-3">
                     {Object.entries(blueprint.design.cssVariables)
-                      .slice(0, 40)
+                      .slice(0, 60)
                       .map(([k, v]) => (
                         <div
                           key={k}
                           className="flex gap-2 text-xs mono border-b border-border/60 py-1"
                         >
-                          <span className="text-info shrink-0">{k}</span>
+                          <span
+                            className={
+                              k.startsWith("--e-global")
+                                ? "text-warning shrink-0"
+                                : "text-info shrink-0"
+                            }
+                          >
+                            {k}
+                          </span>
                           <span className="text-fg-muted truncate">{v}</span>
                         </div>
                       ))}
@@ -377,6 +912,27 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
               </CardContent>
             </Card>
           </div>
+
+          {blueprint.design.fullImageUrls &&
+            blueprint.design.fullImageUrls.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Full-size images (WP uploads)</CardTitle>
+                  <CardDescription>
+                    Thumbnail suffixy (-300x200, -1024x768…) odstránené
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ScrollArea className="h-40">
+                    <ul className="space-y-1 pr-3 text-xs mono text-fg-muted break-all">
+                      {blueprint.design.fullImageUrls.slice(0, 40).map((u) => (
+                        <li key={u}>{u}</li>
+                      ))}
+                    </ul>
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+            )}
         </TabsContent>
 
         <TabsContent value="structure" className="space-y-4">
@@ -447,7 +1003,13 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
           {blueprint.forms.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Formuláre</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <FormInput className="size-4" />
+                  Formuláre
+                </CardTitle>
+                <CardDescription>
+                  login · lost password · contact · booking · auth…
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 {blueprint.forms.map((f, i) => (
@@ -455,15 +1017,26 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
                     key={i}
                     className="rounded-[var(--radius-md)] border border-border bg-bg-subtle/50 p-3"
                   >
-                    <div className="flex flex-wrap gap-2 text-xs mono">
+                    <div className="flex flex-wrap gap-2 text-xs items-center">
+                      <Badge variant="accent">{f.category || "other"}</Badge>
                       <Badge>{f.method}</Badge>
-                      <span className="text-fg-muted break-all">{f.action}</span>
+                      {f.confidence && (
+                        <Badge variant={confVariant(f.confidence)}>{f.confidence}</Badge>
+                      )}
+                      {f.submitText && (
+                        <span className="text-fg-muted">submit: {f.submitText}</span>
+                      )}
+                      <span className="mono text-fg-muted break-all flex-1">{f.action}</span>
                     </div>
+                    {f.evidence && (
+                      <p className="mt-1 text-[11px] text-fg-subtle">{f.evidence}</p>
+                    )}
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {f.fields.map((field) => (
-                        <Badge key={field.name} variant="default">
+                        <Badge key={`${field.name}-${field.type}`} variant="default">
                           {field.name}
                           <span className="text-fg-subtle">:{field.type}</span>
+                          {field.required ? "*" : ""}
                         </Badge>
                       ))}
                     </div>
