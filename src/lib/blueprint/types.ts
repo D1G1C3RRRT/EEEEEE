@@ -118,6 +118,26 @@ export interface BlueprintPage {
   formCount: number;
 }
 
+/** Per-URL crawl failure (fault isolation) */
+export interface FailedUrlRecord {
+  url: string;
+  statusCode: number | null;
+  error: string;
+  at: string;
+}
+
+export interface PartialStats {
+  totalAttempted: number;
+  succeeded: number;
+  failed: number;
+}
+
+export interface ScanWarnings {
+  failedUrls: FailedUrlRecord[];
+}
+
+export type ScanStatus = "complete" | "partial" | "aborted";
+
 export interface ScanOptionsApplied {
   maxPages: number;
   render: boolean;
@@ -162,6 +182,16 @@ export interface Blueprint {
   wordpress: import("./wordpress-jetengine").WordPressArchitecture | null;
   /** Compiled Elementor template (importable JSON schema v0.4) */
   elementorTemplate: import("./elementor-compiler").ElementorTemplate | null;
+  /**
+   * complete = all crawl targets ok;
+   * partial = some URLs failed but harvest continued;
+   * aborted = user cancel / signal mid-crawl (still returns saved pages)
+   */
+  scanStatus?: ScanStatus;
+  /** Crawl attempt counters (additional pages; primary counted in UI as +1) */
+  partialStats?: PartialStats | null;
+  /** Structured warnings (failed URLs etc.) */
+  scanWarnings?: ScanWarnings | null;
   stats: {
     htmlBytes: number;
     assetCount: number;
@@ -196,7 +226,10 @@ export interface ScanRequest {
    * Default true for URL scans.
    */
   wpJetEngine?: boolean;
+  /** Cancel multi-page crawl mid-way → partial blueprint with harvested pages */
+  signal?: AbortSignal;
 }
+
 
 export interface CompareChange {
   path: string;

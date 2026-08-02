@@ -73,10 +73,39 @@ describe("blueprint local storage", () => {
     expect(parsed.version).toBe("1.1.0");
   });
 
+  it("downloadElementorTemplate triggers elementor-template-import.json download", async () => {
+    const { downloadElementorTemplate } = await import("@/lib/blueprint/storage");
+    const bp = makeMinimalBlueprint({
+      html: `<div class="elementor"><h1 class="elementor-heading-title">Hi</h1></div>`,
+      elementorTemplate: null,
+    });
+    const clicks: string[] = [];
+    const origCreate = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const el = origCreate(tag);
+      if (tag === "a") {
+        el.click = () => {
+          clicks.push((el as HTMLAnchorElement).download);
+        };
+      }
+      return el;
+    });
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+
+    const tpl = downloadElementorTemplate(bp);
+    expect(tpl.version).toBe("0.4");
+    expect(clicks[0]).toBe("elementor-template-import.json");
+  });
+
   it("builds ZIP with expected files including captured assets", async () => {
     const { exportBlueprintZip } = await import("@/lib/blueprint/storage");
     const JSZip = (await import("jszip")).default;
-    const bp = makeMinimalBlueprint();
+    const bp = makeMinimalBlueprint({
+      html: `<div class="elementor"><h1 class="elementor-heading-title">Zip</h1>
+        <div class="elementor-widget-jet-listing-dynamic-field"
+          data-settings='{"dynamic_field_source":"object_title"}'>T</div></div>`,
+    });
 
     const clicks: string[] = [];
     const origCreate = document.createElement.bind(document);
@@ -109,5 +138,15 @@ describe("blueprint local storage", () => {
     expect(zip.file("manifest.json")).toBeTruthy();
     expect(zip.file("css/inline-1.css")).toBeTruthy();
     expect(zip.file("assets/images/001.png")).toBeTruthy();
+    expect(zip.file("elementor-template-import.json")).toBeTruthy();
+    expect(zip.file("elementor-template-with-meta.json")).toBeTruthy();
+
+    const elJson = await zip.file("elementor-template-import.json")!.async("string");
+    const parsed = JSON.parse(elJson);
+    expect(parsed.version).toBe("0.4");
+    expect(parsed._blueprint).toBeUndefined();
+
+    const manifest = JSON.parse(await zip.file("manifest.json")!.async("string"));
+    expect(manifest).toHaveProperty("hasElementorTemplate");
   });
 });

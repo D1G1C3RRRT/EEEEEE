@@ -19,6 +19,7 @@ import {
   saveBlueprintLocal,
   type BlueprintSummary,
 } from "@/lib/blueprint/storage";
+import { normalizeImportedBlueprint } from "@/lib/blueprint/import-normalize";
 import type { Blueprint } from "@/lib/blueprint/types";
 import { toast } from "sonner";
 
@@ -72,33 +73,7 @@ function HomePage() {
       if (!file) return;
       try {
         const text = await file.text();
-        const parsed = JSON.parse(text) as Blueprint;
-        if (!parsed?.id || !parsed?.version || !parsed?.html) {
-          throw new Error("Neplatný formát blueprintu");
-        }
-        // normalize v1.0 → v1.1 fields
-        if (!parsed.pages) parsed.pages = [];
-        if (!parsed.options) {
-          parsed.options = {
-            maxPages: 1,
-            render: false,
-            wayback: false,
-            captureAssets: false,
-            wpJetEngine: false,
-          };
-        } else if (parsed.options.wpJetEngine == null) {
-          parsed.options.wpJetEngine = false;
-        }
-        if (parsed.wordpress === undefined) parsed.wordpress = null;
-        if (parsed.elementorTemplate === undefined) parsed.elementorTemplate = null;
-        if (parsed.rendered == null) parsed.rendered = false;
-        if (parsed.waybackUrl === undefined) parsed.waybackUrl = null;
-        if (!parsed.stats.pageCount) parsed.stats.pageCount = 1;
-        if (parsed.stats.capturedAssetCount == null) {
-          parsed.stats.capturedAssetCount = parsed.assets.filter(
-            (a) => a.captured,
-          ).length;
-        }
+        const parsed = normalizeImportedBlueprint(JSON.parse(text));
         saveBlueprintLocal(parsed);
         setBlueprint(parsed);
         refreshHistory();

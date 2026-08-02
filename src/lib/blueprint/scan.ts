@@ -16,8 +16,15 @@ import type {
   BlueprintPage,
   DesignTokens,
   DomOutlineNode,
+  PartialStats,
   ScanRequest,
+  ScanStatus,
+  ScanWarnings,
 } from "./types";
+import {
+  harvestCrawlPages,
+  type PageHarvest,
+} from "./crawl-pages";
 import { compileElementorFromBlueprint } from "./elementor-compiler";
 import type { ElementorTemplate } from "./elementor-compiler";
 import { extractWordPressArchitecture } from "./wordpress-jetengine";
@@ -843,7 +850,7 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
     }
   }
 
-  // Crawl same-origin pages
+  // Crawl same-origin pages (fault-tolerant, per-URL isolation)
   const pages: BlueprintPage[] = [];
   const allLinks = [...primary.links];
   const allForms = [...primary.forms];
@@ -852,63 +859,66 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
   const allStyles = [...primary.stylesheets];
   let allCss = [...primary.cssBundles];
   let mergedDesign = primary.design;
+  let scanStatus: ScanStatus = "complete";
+  let partialStats: PartialStats | null = null;
+  let scanWarnings: ScanWarnings | null = null;
 
   if (maxPages > 1 && source !== "html") {
-    const origin = new URL(base).origin;
-    const queue: string[] = [];
-    const seen = new Set<string>([normalizePageUrl(base)]);
-
-    const enqueue = (href: string, priority = false) => {
-      try {
-        if (new URL(href).origin !== origin) return;
-      } catch {
-        return;
-      }
-      const n = normalizePageUrl(href);
-      if (seen.has(n)) return;
-      // skip pure media / feeds
-      if (/\.(jpg|jpeg|png|gif|webp|svg|pdf|zip|xml|css|js)(\?|$)/i.test(n)) return;
-      seen.add(n);
-      if (priority) queue.unshift(n);
-      else queue.push(n);
-    };
-
-    // Priority seeds: nav + footer + sitemap (WP clone completeness)
+    const seedUrls: string[] = [];
     if (wordpress) {
-      for (const u of wordpress.navLinks) enqueue(u, true);
-      for (const u of wordpress.footerLinks) enqueue(u, true);
-      for (const u of wordpress.sitemapUrls) enqueue(u, false);
-      // REST page links
+      seedUrls.push(...wordpress.navLinks, ...wordpress.footerLinks, ...wordpress.sitemapUrls);
       const restPages = wordpress.rest.pages?.data;
       if (Array.isArray(restPages)) {
         for (const p of restPages) {
           if (p && typeof p === "object" && "link" in p) {
             const link = (p as { link?: string }).link;
-            if (link) enqueue(link, true);
+            if (link) seedUrls.push(link);
           }
         }
       }
     }
 
-    for (const l of primary.links) {
-      if (!l.internal) continue;
-      enqueue(l.href, false);
-    }
-
-    while (queue.length && pages.length < maxPages - 1) {
-      const nextUrl = queue.shift()!;
-      try {
-        assertPublicUrl(nextUrl);
-        const pageFetch = await fetchPageHtml(nextUrl, false);
-        if (pageFetch.status != null && pageFetch.status >= 400) continue;
-        const parsed = await parseHtmlDocument(
-          pageFetch.html,
-          pageFetch.finalUrl || nextUrl,
-          pageFetch.headers,
-          pageFetch.status,
-          pageFetch.contentType,
-        );
-        pages.push({
+    const harvestOne = async (nextUrl: string): Promise<PageHarvest | null> => {
+      assertPublicUrl(nextUrl);
+      const pageFetch = await fetchPageHtml(nextUrl, false);
+      if (pageFetch.status != null && pageFetch.status >= 400) {
+        // Represent as failed harvest with status (crawl layer records warning)
+        return {
+          page: {
+            url: pageFetch.finalUrl || nextUrl,
+            title: "",
+            contentHash: "",
+            statusCode: pageFetch.status,
+            htmlBytes: 0,
+            headings: [],
+            internalLinkCount: 0,
+            formCount: 0,
+          },
+          links: [],
+          forms: [],
+          assets: [],
+          scripts: [],
+          stylesheets: [],
+          cssBundles: [],
+          design: {
+            colors: [],
+            fonts: [],
+            cssVariables: {},
+            borderRadii: [],
+            shadows: [],
+            spacingHints: [],
+          },
+        };
+      }
+      const parsed = await parseHtmlDocument(
+        pageFetch.html,
+        pageFetch.finalUrl || nextUrl,
+        pageFetch.headers,
+        pageFetch.status,
+        pageFetch.contentType,
+      );
+      return {
+        page: {
           url: pageFetch.finalUrl || nextUrl,
           title: parsed.meta.title,
           contentHash: parsed.contentHash,
@@ -917,45 +927,91 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
           headings: parsed.headings.slice(0, 20),
           internalLinkCount: parsed.links.filter((x) => x.internal).length,
           formCount: parsed.forms.length,
-        });
-        for (const l of parsed.links) {
-          allLinks.push(l);
-          if (l.internal) enqueue(l.href, false);
-        }
-        allForms.push(...parsed.forms);
-        allAssets.push(...parsed.assets);
-        allScripts.push(...parsed.scripts);
-        allStyles.push(...parsed.stylesheets);
-        allCss = allCss.concat(parsed.cssBundles);
-        mergedDesign = {
-          colors: [...new Set([...mergedDesign.colors, ...parsed.design.colors])].slice(0, 64),
-          fonts: [...new Set([...mergedDesign.fonts, ...parsed.design.fonts])].slice(0, 24),
-          cssVariables: { ...parsed.design.cssVariables, ...mergedDesign.cssVariables },
-          borderRadii: [...new Set([...mergedDesign.borderRadii, ...parsed.design.borderRadii])].slice(0, 20),
-          shadows: [...new Set([...mergedDesign.shadows, ...parsed.design.shadows])].slice(0, 16),
-          spacingHints: [...new Set([...mergedDesign.spacingHints, ...parsed.design.spacingHints])].slice(0, 24),
-          elementorGlobals: mergedDesign.elementorGlobals,
-          typography: mergedDesign.typography,
-          fullImageUrls: [
-            ...new Set([
-              ...(mergedDesign.fullImageUrls || []),
-              ...(parsed.design.fullImageUrls || []),
-            ]),
-          ].slice(0, 200),
-        };
-      } catch {
-        /* skip page */
+        },
+        links: parsed.links,
+        forms: parsed.forms,
+        assets: parsed.assets,
+        scripts: parsed.scripts,
+        stylesheets: parsed.stylesheets,
+        cssBundles: parsed.cssBundles,
+        design: parsed.design,
+      };
+    };
+
+    // Incremental checkpoint list (crash / cancel recovery)
+    const scannedPagesCheckpoint: BlueprintPage[] = [];
+
+    try {
+      const crawl = await harvestCrawlPages({
+        baseUrl: base,
+        maxAdditionalPages: maxPages - 1,
+        seedUrls,
+        primaryInternalLinks: primary.links.filter((l) => l.internal).map((l) => l.href),
+        initialDesign: primary.design,
+        signal: input.signal,
+        harvestOne,
+        onProgress: ({ scannedPages }) => {
+          scannedPagesCheckpoint.length = 0;
+          scannedPagesCheckpoint.push(...scannedPages);
+        },
+      });
+
+      pages.push(...crawl.scannedPages);
+      allLinks.push(...crawl.links);
+      allForms.push(...crawl.forms);
+      allAssets.push(...crawl.assets);
+      allScripts.push(...crawl.scripts);
+      allStyles.push(...crawl.stylesheets);
+      allCss = allCss.concat(crawl.cssBundles);
+      mergedDesign = crawl.design;
+      scanStatus = crawl.scanStatus;
+      partialStats = crawl.partialStats;
+      scanWarnings = crawl.scanWarnings;
+
+      if (crawl.failedUrls.length || crawl.aborted) {
+        notes.push(
+          `Crawl recovery: ${crawl.scannedPages.length} OK, ${crawl.failedUrls.length} zlyhaných` +
+            (crawl.aborted ? " (prerušené)" : "") +
+            `. scanStatus=${crawl.scanStatus}.`,
+        );
       }
-    }
-    if (pages.length) {
+      if (pages.length) {
+        notes.push(
+          `Crawl: ${pages.length + 1} same-origin stránok (limit ${maxPages})${
+            wordpress?.sitemapUrls.length ? " + sitemap/nav seed" : ""
+          }.`,
+        );
+      }
+    } catch (err) {
+      // Fatal mid-crawl: still keep checkpointed pages as partial blueprint data
+      pages.push(...scannedPagesCheckpoint);
+      scanStatus = "partial";
+      partialStats = {
+        totalAttempted: scannedPagesCheckpoint.length + 1,
+        succeeded: scannedPagesCheckpoint.length,
+        failed: 1,
+      };
+      scanWarnings = {
+        failedUrls: [
+          {
+            url: base,
+            statusCode: null,
+            error:
+              err instanceof Error
+                ? `Fatal crawl error: ${err.message}`
+                : "Fatal crawl error",
+            at: new Date().toISOString(),
+          },
+        ],
+      };
       notes.push(
-        `Crawl: ${pages.length + 1} same-origin stránok (limit ${maxPages})${
-          wordpress?.sitemapUrls.length ? " + sitemap/nav seed" : ""
-        }.`,
+        `Crawl fatal recovery: uložených ${scannedPagesCheckpoint.length} stránok pred pádom.`,
+      );
+      limitations.push(
+        "Crawl bol prerušený fatálnou chybou — blueprint je čiastočný (partial).",
       );
     }
   }
-
 
   // dedupe links/assets
   const linkSeen = new Set<string>();
@@ -1079,6 +1135,9 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
     rendered,
     wordpress,
     elementorTemplate: null,
+    scanStatus,
+    partialStats,
+    scanWarnings,
     stats: {
       htmlBytes: Buffer.byteLength(primary.html, "utf8"),
       assetCount: assets.length,

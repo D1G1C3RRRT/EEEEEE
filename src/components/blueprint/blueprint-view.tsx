@@ -35,6 +35,7 @@ import {
   exportBlueprintZip,
 } from "@/lib/blueprint/storage";
 import type { Blueprint, DomOutlineNode } from "@/lib/blueprint/types";
+import { partialScanBadgeLabel } from "@/lib/blueprint/crawl-pages";
 import { cn, formatBytes } from "@/lib/utils";
 
 function confVariant(c: "high" | "medium" | "low") {
@@ -162,6 +163,11 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
                   HTTP {blueprint.statusCode}
                 </Badge>
               )}
+              {blueprint.scanStatus && blueprint.scanStatus !== "complete" && (
+                <Badge variant="warning" title={partialScanBadgeLabel(blueprint.scanStatus, blueprint.partialStats) || undefined}>
+                  {blueprint.scanStatus === "aborted" ? "Prerušený sken" : "Čiastočný sken"}
+                </Badge>
+              )}
             </div>
             <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-balance break-words">
               {blueprint.meta.title || "Bez title"}
@@ -185,6 +191,29 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
                 ))}
               </ul>
             )}
+            {partialScanBadgeLabel(blueprint.scanStatus, blueprint.partialStats) && (
+              <div className="mt-2 rounded-[var(--radius-md)] border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+                {partialScanBadgeLabel(blueprint.scanStatus, blueprint.partialStats)}
+              </div>
+            )}
+            {blueprint.scanWarnings?.failedUrls?.length ? (
+              <details className="mt-2 rounded-[var(--radius-md)] border border-border bg-bg-subtle/50 px-3 py-2 text-sm">
+                <summary className="cursor-pointer font-medium text-fg">
+                  Failed URLs ({blueprint.scanWarnings.failedUrls.length})
+                </summary>
+                <ul className="mt-2 space-y-1.5 text-xs text-fg-muted">
+                  {blueprint.scanWarnings.failedUrls.map((f) => (
+                    <li key={`${f.url}-${f.at}`} className="break-all">
+                      <span className="mono text-fg">{f.url}</span>
+                      {f.statusCode != null && (
+                        <span className="ml-1 text-danger">HTTP {f.statusCode}</span>
+                      )}
+                      <span className="block text-fg-subtle">{f.error}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
             <Button variant="secondary" size="sm" onClick={() => void copyJson()}>
