@@ -26,3 +26,24 @@ npm test
 
 ## Repo
 https://github.com/D1G1C3RRRT/EEEEEE
+
+## Git remotes
+
+Primary push target (connected GitHub account):
+
+```
+https://github.com/NEXIFY-STUDIO/EEEEEE
+```
+
+User-requested target (needs collaborator write for NEXIFY-STUDIO):
+
+```
+https://github.com/D1G1C3RRRT/EEEEEE
+```
+
+To enable push to D1G1C3RRRT/EEEEEE: Settings → Collaborators → invite `NEXIFY-STUDIO` with Write, then:
+
+```bash
+git remote set-url origin https://github.com/D1G1C3RRRT/EEEEEE.git
+git push -u origin main
+```
