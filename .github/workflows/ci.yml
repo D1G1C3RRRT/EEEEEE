@@ -2,14 +2,20 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   quality:
+    name: typecheck · test · build
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -26,10 +32,10 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Tests
+      - name: Unit & integration tests
         run: npm run test:unit
 
-      - name: Build
+      - name: Production build
         run: npm run build
         env:
           CI: "true"

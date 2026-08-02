@@ -101,37 +101,90 @@
     filter: blur(100px);
   }
 
-  /* Premium focus ring for primary input — gold/warm, reduced motion safe */
+  /* ── Premium neon border (main input) ──
+     conic-gradient + mask-composite = thin rotating ring
+     ::after = soft ambient glow outside the field
+  */
   .neon-border-wrapper {
     position: relative;
-    border-radius: calc(var(--radius-md) + 2px);
-    padding: 1.5px;
-    overflow: hidden;
-    background: var(--color-border);
+    isolation: isolate;
+    border-radius: var(--radius-lg);
   }
 
   .neon-border-wrapper::before {
     content: "";
     position: absolute;
-    inset: -40%;
+    inset: -1.5px;
+    border-radius: inherit;
+    padding: 1.5px;
     background: conic-gradient(
       from 0deg,
-      transparent 0deg,
-      color-mix(in oklab, var(--color-accent) 55%, transparent) 90deg,
-      color-mix(in oklab, var(--color-warning) 40%, transparent) 160deg,
-      color-mix(in oklab, var(--color-fg) 35%, transparent) 220deg,
-      transparent 360deg
+      transparent 0%,
+      color-mix(in oklab, var(--color-accent) 85%, transparent) 12%,
+      color-mix(in oklab, #f0d9a8 60%, transparent) 28%,
+      transparent 42%,
+      transparent 58%,
+      color-mix(in oklab, var(--color-accent) 50%, transparent) 72%,
+      transparent 100%
     );
-    animation: neon-spin 5s linear infinite;
-    opacity: 0.75;
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: neon-spin 4s linear infinite;
+    pointer-events: none;
     z-index: 0;
+    opacity: 0.9;
+  }
+
+  /* Soft outer ambient glow */
+  .neon-border-wrapper::after {
+    content: "";
+    position: absolute;
+    inset: -10px;
+    border-radius: inherit;
+    background: radial-gradient(
+      ellipse at center,
+      color-mix(in oklab, var(--color-accent) 18%, transparent) 0%,
+      transparent 70%
+    );
+    pointer-events: none;
+    z-index: -1;
+    filter: blur(14px);
+    opacity: 0.65;
   }
 
   .neon-border-wrapper > .neon-inner {
     position: relative;
     z-index: 1;
-    border-radius: var(--radius-md);
+    border-radius: calc(var(--radius-lg) - 1px);
     background: var(--color-bg);
+    border: 1px solid var(--color-border);
+  }
+
+  /* Focus boost — brighter + faster ring */
+  .neon-border-wrapper:focus-within::before {
+    opacity: 1;
+    animation-duration: 2.8s;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0%,
+      var(--color-accent) 15%,
+      #f0d9a8 30%,
+      transparent 45%,
+      transparent 55%,
+      var(--color-accent) 70%,
+      transparent 100%
+    );
+  }
+
+  .neon-border-wrapper:focus-within::after {
+    opacity: 1;
+    filter: blur(18px);
   }
 
   .start-here-badge {
@@ -280,13 +333,12 @@
     }
 
     .neon-border-wrapper::before {
+      opacity: 0.75;
+      background: color-mix(in oklab, var(--color-accent) 55%, transparent);
+    }
+
+    .neon-border-wrapper::after {
       opacity: 0.35;
-      background: linear-gradient(
-        90deg,
-        transparent,
-        color-mix(in oklab, var(--color-accent) 50%, transparent),
-        transparent
-      );
     }
 
     .toggle-neon-ring::before {

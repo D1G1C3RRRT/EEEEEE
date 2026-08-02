@@ -391,9 +391,9 @@ export function ScanForm({ onScanned, busy, setBusy, compact = false }: Props) {
         </button>
       </div>
 
-      {/* Primary input with start here badge */}
-      <div className="relative pt-2 mb-4">
-        <div className="absolute -top-1 left-3 z-20 px-2 py-0.5 rounded-full bg-bg border border-accent/40 text-[10px] font-mono text-accent flex items-center gap-1 start-here-badge">
+      {/* Primary input — neon ring + start here badge */}
+      <div className="relative pt-2.5 mb-4">
+        <div className="absolute -top-1 left-3 z-20 px-2 py-0.5 rounded-full bg-bg-elevated border border-accent/40 text-[10px] font-mono text-accent flex items-center gap-1.5 start-here-badge">
           <span className="size-1.5 rounded-full bg-accent animate-pulse" />
           start here
         </div>
@@ -410,10 +410,10 @@ export function ScanForm({ onScanned, busy, setBusy, compact = false }: Props) {
                 autoComplete="url"
                 inputMode="url"
                 disabled={isBusy}
-                className="h-11 border-0 bg-transparent shadow-none focus-visible:ring-0 mono text-sm"
+                className="h-12 border-0 bg-transparent shadow-none focus-visible:ring-0 mono text-sm px-4"
               />
             ) : (
-              <div className="space-y-2 p-1">
+              <div className="space-y-2 p-2">
                 <Input
                   placeholder="https://povodna-domena.sk"
                   value={baseUrl}
@@ -466,7 +466,7 @@ export function ScanForm({ onScanned, busy, setBusy, compact = false }: Props) {
       {/* Icon toggles — short tap = tip, long-press = toggle */}
       <div className="flex items-center justify-between gap-2 px-3 py-1.5 mb-2 bg-bg border border-border rounded-full">
         <span className="text-xs text-fg-subtle shrink-0">Možnosti:</span>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5 sm:gap-1">
           <IconToggle
             testId="opt-render"
             label="Headless render"
@@ -519,9 +519,12 @@ export function ScanForm({ onScanned, busy, setBusy, compact = false }: Props) {
           </IconToggle>
         </div>
       </div>
-      <p className="mb-4 text-[11px] text-fg-subtle text-center sm:text-left">
-        Krátky tap = nápoveda · podržanie ≈0,5 s = zapnúť/vypnúť · aktívne = neon
-      </p>
+      {!compact && (
+        <p className="mb-4 text-[11px] text-fg-subtle text-center sm:text-left">
+          Krátky tap = nápoveda · podržanie ≈0,5 s = zapnúť/vypnúť · aktívne = neon
+        </p>
+      )}
+      {compact && <div className="mb-4" />}
 
       <span className="sr-only">
         Headless render Wayback Stiahnuť assety Crawl WP / JetEngine
@@ -552,7 +555,7 @@ export function ScanForm({ onScanned, busy, setBusy, compact = false }: Props) {
             size="lg"
             disabled={isBusy || (mode === "url" ? !url.trim() : !html.trim())}
             onClick={() => void runScan()}
-            className="w-full min-w-[160px] bg-primary text-primary-fg hover:bg-primary/90"
+            className="w-full min-w-[160px] bg-accent text-accent-fg hover:bg-accent/90 font-semibold"
           >
             {isBusy ? (
               <>
