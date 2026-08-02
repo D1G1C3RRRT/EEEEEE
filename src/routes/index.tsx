@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  Fingerprint,
+  GitCompareArrows,
+  History,
   Import,
+  RefreshCw,
   ScanLine,
-  Shield,
-  Sparkles,
+  X,
 } from "lucide-react";
 import { ScanForm } from "@/components/blueprint/scan-form";
 import { BlueprintView } from "@/components/blueprint/blueprint-view";
@@ -27,10 +28,13 @@ export const Route = createFileRoute("/")({
   component: HomePage,
 });
 
+type Overlay = "none" | "history" | "compare";
+
 function HomePage() {
   const [blueprint, setBlueprint] = useState<Blueprint | null>(null);
   const [history, setHistory] = useState<BlueprintSummary[]>([]);
   const [busy, setBusy] = useState(false);
+  const [overlay, setOverlay] = useState<Overlay>("none");
 
   const refreshHistory = useCallback(() => {
     setHistory(listLocalBlueprints());
@@ -55,6 +59,7 @@ function HomePage() {
       return;
     }
     setBlueprint(bp);
+    setOverlay("none");
   }
 
   function handleDelete(id: string) {
@@ -85,105 +90,185 @@ function HomePage() {
     input.click();
   }
 
+  const showResult = Boolean(blueprint);
+
   return (
-    <div className="relative min-h-dvh">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[420px] bg-[radial-gradient(ellipse_at_top,color-mix(in_oklab,var(--color-fg)_6%,transparent),transparent_65%)]"
-      />
+    <div className="relative min-h-dvh bg-bg">
+      {/* SCREEN 1 · SCAN */}
+      {!showResult && (
+        <section className="relative min-h-dvh w-full flex flex-col items-center justify-center px-4 py-10 overflow-hidden">
+          <div aria-hidden className="ambient-glow" />
 
-      <header className="relative border-b border-border/80">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex size-9 items-center justify-center rounded-[var(--radius-sm)] border border-border bg-bg-elevated">
-              <ScanLine className="size-4 text-fg" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold tracking-tight">Blueprint</div>
-              <div className="truncate text-xs text-fg-muted">
-                Frontend snapshot · crawl · render · export
+          <div className="w-full max-w-[540px] flex flex-col gap-8 z-10">
+            <div className="flex flex-col items-center gap-2 text-center">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-bg-subtle border border-border text-accent">
+                  <ScanLine className="size-5" />
+                </div>
+                <span className="text-2xl font-semibold tracking-tight text-fg">
+                  Blueprint Scanner
+                </span>
               </div>
-            </div>
-          </div>
-          <Button variant="outline" size="sm" onClick={handleImportJson}>
-            <Import className="size-3.5" />
-            Import JSON
-          </Button>
-        </div>
-      </header>
-
-      <main className="relative mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
-        <section className="mb-8 max-w-2xl">
-          <p className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-border bg-bg-elevated px-3 py-1 text-xs text-fg-muted">
-            <Sparkles className="size-3" />
-            Sken · Crawl · Headless · Wayback · ZIP
-          </p>
-          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-balance leading-[1.15]">
-            Frontend blueprint z akejkoľvek verejnej URL
-          </h1>
-          <p className="mt-3 text-base text-fg-muted text-pretty leading-relaxed">
-            Reverse-spec verejného frontendu: multi-page crawl, SPA headless render,
-            archive.org fallback, stiahnuté assety, compare snapshotov. Backend a DB
-            zvonku nevie — a otvorene to hovorí.
-          </p>
-        </section>
-
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="space-y-6 min-w-0">
-            <ScanForm onScanned={handleScanned} busy={busy} setBusy={setBusy} />
-            {blueprint ? (
-              <BlueprintView blueprint={blueprint} />
-            ) : (
-              <EmptyState />
-            )}
-          </div>
-          <aside className="space-y-4 lg:sticky lg:top-6 lg:self-start">
-            <HistoryList
-              items={history}
-              activeId={blueprint?.id}
-              onSelect={handleSelect}
-              onDelete={handleDelete}
-            />
-            <ComparePanel history={history} current={blueprint} />
-            <div className="panel p-4 space-y-3 text-sm text-fg-muted">
-              <div className="flex items-center gap-2 text-fg font-medium text-sm">
-                <Shield className="size-4" />
-                Čo vieš získať
-              </div>
-              <ul className="space-y-2 text-xs leading-relaxed">
-                <li>Headless DOM (SPA) + HTTP HTML</li>
-                <li>Same-origin crawl (až 20 stránok)</li>
-                <li>Wayback Machine fallback</li>
-                <li>Assety v ZIP + design tokeny</li>
-                <li>Compare dvoch blueprintov</li>
-                <li>História local + server vault</li>
-              </ul>
-              <div className="flex items-center gap-2 pt-1 text-fg font-medium text-sm">
-                <Fingerprint className="size-4" />
-                Čo nie
-              </div>
-              <p className="text-xs leading-relaxed">
-                Databáza, heslá, serverový kód a privátne API. Pre mŕtvy localhost vlož
-                uložené HTML.
+              <h1 className="text-base sm:text-lg font-medium tracking-tight text-fg text-balance">
+                Frontend blueprint z akejkoľvek verejnej URL
+              </h1>
+              <p className="text-sm text-fg-subtle">
+                Skenujte weby do čistých architektúr.
               </p>
             </div>
-          </aside>
-        </div>
-      </main>
-    </div>
-  );
-}
 
-function EmptyState() {
-  return (
-    <div className="panel flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-      <div className="flex size-12 items-center justify-center rounded-[var(--radius-md)] border border-border bg-bg-subtle">
-        <ScanLine className="size-5 text-fg-muted" />
-      </div>
-      <h3 className="text-base font-semibold">Žiadny aktívny blueprint</h3>
-      <p className="max-w-sm text-sm text-fg-muted">
-        Spusti sken URL (s crawl/render), vlož HTML, alebo importuj JSON.
-      </p>
+            <div className="panel p-5 sm:p-6 shadow-soft">
+              <ScanForm
+                onScanned={handleScanned}
+                busy={busy}
+                setBusy={setBusy}
+                compact
+              />
+            </div>
+
+            <div className="flex flex-wrap justify-center items-center gap-x-5 gap-y-2 text-xs text-fg-muted border-t border-border pt-6">
+              <button
+                type="button"
+                onClick={() => setOverlay("history")}
+                className="hover:text-fg flex items-center gap-1.5"
+              >
+                <History className="size-3.5 text-fg-subtle" />
+                História ({history.length})
+              </button>
+              <span className="h-3 w-px bg-border" aria-hidden />
+              <button
+                type="button"
+                onClick={handleImportJson}
+                className="hover:text-fg flex items-center gap-1.5"
+              >
+                <Import className="size-3.5 text-fg-subtle" />
+                Import JSON
+              </button>
+              <span className="h-3 w-px bg-border" aria-hidden />
+              <button
+                type="button"
+                onClick={() => setOverlay("compare")}
+                className="hover:text-fg flex items-center gap-1.5"
+              >
+                <GitCompareArrows className="size-3.5 text-fg-subtle" />
+                Porovnať blueprinty
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* SCREEN 2 · RESULT */}
+      {showResult && blueprint && (
+        <section className="h-dvh w-full flex flex-col overflow-hidden bg-bg">
+          <header className="h-14 shrink-0 border-b border-border px-3 sm:px-4 flex items-center justify-between gap-3 bg-bg">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="p-1.5 rounded-md bg-bg-subtle border border-border text-accent shrink-0">
+                <ScanLine className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-medium truncate mono">
+                  {blueprint.sourceUrl || blueprint.meta.title || blueprint.id}
+                </div>
+                <div className="text-[11px] text-fg-subtle truncate">
+                  {blueprint.stats?.pageCount ?? 1} stránok ·{" "}
+                  {blueprint.stats?.capturedAssetCount ?? 0} assetov ·{" "}
+                  {blueprint.tech?.slice(0, 3).map((t) => t.name).join(" · ") || "—"}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setOverlay("history")}
+                className="hidden sm:inline-flex"
+              >
+                <History className="size-3.5" />
+                História
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setBlueprint(null);
+                  setOverlay("none");
+                }}
+              >
+                <RefreshCw className="size-3.5" />
+                Nový sken
+              </Button>
+            </div>
+          </header>
+
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="mx-auto max-w-6xl px-3 sm:px-6 py-5 sm:py-6">
+              <BlueprintView blueprint={blueprint} />
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Overlay: History */}
+      {overlay === "history" && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-bg/70 backdrop-blur-sm">
+          <div
+            className="absolute inset-0"
+            onClick={() => setOverlay("none")}
+            aria-hidden
+          />
+          <div className="relative z-10 w-full sm:max-w-md max-h-[85dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-border bg-bg-elevated shadow-soft">
+            <div className="sticky top-0 flex items-center justify-between px-4 py-3 border-b border-border bg-bg-elevated">
+              <h3 className="text-sm font-semibold">História skenov</h3>
+              <button
+                type="button"
+                onClick={() => setOverlay("none")}
+                className="text-fg-subtle hover:text-fg p-1"
+                aria-label="Zatvoriť"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="p-3">
+              <HistoryList
+                items={history}
+                activeId={blueprint?.id}
+                onSelect={handleSelect}
+                onDelete={handleDelete}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Overlay: Compare — keep "Porovnať blueprinty" text for smoke */}
+      {overlay === "compare" && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-bg/70 backdrop-blur-sm">
+          <div
+            className="absolute inset-0"
+            onClick={() => setOverlay("none")}
+            aria-hidden
+          />
+          <div className="relative z-10 w-full sm:max-w-md max-h-[85dvh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-border bg-bg-elevated shadow-soft">
+            <div className="sticky top-0 flex items-center justify-between px-4 py-3 border-b border-border bg-bg-elevated">
+              <h3 className="text-sm font-semibold">Porovnať blueprinty</h3>
+              <button
+                type="button"
+                onClick={() => setOverlay("none")}
+                className="text-fg-subtle hover:text-fg p-1"
+                aria-label="Zatvoriť"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="p-3">
+              <ComparePanel history={history} current={blueprint} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

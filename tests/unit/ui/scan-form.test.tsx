@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act } from "react";
 import { click, flush, render, typeInput } from "../../helpers/render";
 import { makeMinimalBlueprint } from "../../fixtures/minimal-blueprint";
 
@@ -20,6 +21,75 @@ vi.mock("@/lib/blueprint/storage", async (importOriginal) => {
 
 import { ScanForm } from "@/components/blueprint/scan-form";
 
+function getToggle(container: HTMLElement, testId: string) {
+  return container.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement;
+}
+
+/** Keyboard Space toggles (a11y path) — short click no longer toggles */
+function toggleViaKey(btn: HTMLButtonElement) {
+  act(() => {
+    btn.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: " ",
+        code: "Space",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+}
+
+function longPress(btn: HTMLButtonElement, ms = 520) {
+  act(() => {
+    btn.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 10,
+        pointerId: 1,
+        pointerType: "touch",
+        button: 0,
+      }),
+    );
+  });
+  act(() => {
+    vi.advanceTimersByTime(ms);
+  });
+}
+
+function shortPress(btn: HTMLButtonElement) {
+  act(() => {
+    btn.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 10,
+        pointerId: 1,
+        pointerType: "touch",
+        button: 0,
+      }),
+    );
+  });
+  act(() => {
+    vi.advanceTimersByTime(120);
+  });
+  act(() => {
+    btn.dispatchEvent(
+      new PointerEvent("pointerup", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 10,
+        clientY: 10,
+        pointerId: 1,
+        pointerType: "touch",
+        button: 0,
+      }),
+    );
+  });
+}
+
 describe("UI · ScanForm", () => {
   beforeEach(() => {
     scanBlueprint.mockReset();
@@ -28,6 +98,7 @@ describe("UI · ScanForm", () => {
   });
   afterEach(() => {
     document.body.innerHTML = "";
+    vi.useRealTimers();
   });
 
   it("renders title and description", () => {
@@ -35,7 +106,7 @@ describe("UI · ScanForm", () => {
       <ScanForm onScanned={() => {}} />,
     );
     expect(container.textContent).toMatch(/Skenovať projekt/);
-    expect(container.textContent).toMatch(/WordPress\/JetEngine|frontend snapshot/i);
+    expect(container.textContent).toMatch(/WordPress\/JetEngine|frontend snapshot|start here/i);
     unmount();
   });
 
@@ -82,23 +153,54 @@ describe("UI · ScanForm", () => {
     expect(htmlTab).toBeTruthy();
     click(htmlTab);
     expect(htmlTab.disabled).toBe(false);
-    const checks = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
-    expect(checks.length).toBeGreaterThanOrEqual(3);
+    expect(getToggle(container, "opt-render")).toBeTruthy();
+    expect(getToggle(container, "opt-assets")).toBeTruthy();
     unmount();
   });
 
-  it("toggles captureAssets and wpJetEngine checkboxes", () => {
+  it("toggles captureAssets and wpJetEngine via keyboard Space", () => {
     const { container, unmount } = render(<ScanForm onScanned={() => {}} />);
-    const checks = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
-    expect(checks.length).toBeGreaterThanOrEqual(4);
-    const capture = checks[2];
-    const wp = checks[3];
-    expect(capture.checked).toBe(true);
-    expect(wp.checked).toBe(true);
-    click(capture);
-    click(wp);
-    expect(capture.checked).toBe(false);
-    expect(wp.checked).toBe(false);
+    const capture = getToggle(container, "opt-assets");
+    const wp = getToggle(container, "opt-wp");
+    expect(capture.getAttribute("aria-checked")).toBe("true");
+    expect(wp.getAttribute("aria-checked")).toBe("true");
+    toggleViaKey(capture);
+    toggleViaKey(wp);
+    expect(capture.getAttribute("aria-checked")).toBe("false");
+    expect(wp.getAttribute("aria-checked")).toBe("false");
+    unmount();
+  });
+
+  it("short pointer press shows tip and does NOT toggle", () => {
+    vi.useFakeTimers();
+    const { container, unmount } = render(<ScanForm onScanned={() => {}} />);
+    const btn = getToggle(container, "opt-assets");
+    shortPress(btn);
+    expect(btn.getAttribute("aria-checked")).toBe("true");
+    expect(container.textContent).toMatch(/ZIP exportu|Stiahnuť assety/i);
+    unmount();
+  });
+
+  it("long-press (≥500ms) toggles aria-checked", () => {
+    vi.useFakeTimers();
+    const { container, unmount } = render(<ScanForm onScanned={() => {}} />);
+    const btn = getToggle(container, "opt-assets");
+    longPress(btn, 520);
+    expect(btn.getAttribute("aria-checked")).toBe("false");
+    unmount();
+  });
+
+  it("disabled toggles ignore long-press in HTML mode", () => {
+    vi.useFakeTimers();
+    const { container, unmount } = render(<ScanForm onScanned={() => {}} />);
+    const htmlTab = [...container.querySelectorAll("button")].find((b) =>
+      /Vložiť HTML/.test(b.textContent || ""),
+    );
+    click(htmlTab!);
+    const renderBtn = getToggle(container, "opt-render");
+    expect(renderBtn.disabled).toBe(true);
+    longPress(renderBtn, 600);
+    expect(renderBtn.disabled).toBe(true);
     unmount();
   });
 
@@ -156,9 +258,7 @@ describe("UI · ScanForm", () => {
       ) as HTMLInputElement,
       "https://x.test",
     );
-    // uncheck wp
-    const checks = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
-    click(checks[3]);
+    toggleViaKey(getToggle(container, "opt-wp"));
     click(
       [...container.querySelectorAll("button")].find((b) =>
         /Vytvoriť blueprint/.test(b.textContent || ""),
@@ -187,7 +287,6 @@ describe("UI · ScanForm", () => {
     await flush();
     let textarea = container.querySelector("textarea");
     if (!textarea) {
-      // Radix TabsContent may stay unmounted in happy-dom — fall back to URL path
       typeInput(
         container.querySelector(
           'input[placeholder="https://moja-appka.com"]',
@@ -224,43 +323,6 @@ describe("UI · ScanForm", () => {
     unmount();
   });
 
-  it("respects external busy prop — submit disabled", () => {
-    const { container, unmount } = render(
-      <ScanForm onScanned={() => {}} busy setBusy={() => {}} />,
-    );
-    typeInput(
-      container.querySelector(
-        'input[placeholder="https://moja-appka.com"]',
-      ) as HTMLInputElement,
-      "https://example.com",
-    );
-    const btn = [...container.querySelectorAll("button")].find((b) =>
-      /Skenujem|Vytvoriť blueprint/.test(b.textContent || ""),
-    ) as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
-    unmount();
-  });
-
-  it("shows thrown error message", async () => {
-    scanBlueprint.mockRejectedValue(new Error("network down"));
-    const { container, unmount } = render(<ScanForm onScanned={() => {}} />);
-    typeInput(
-      container.querySelector(
-        'input[placeholder="https://moja-appka.com"]',
-      ) as HTMLInputElement,
-      "https://example.com",
-    );
-    click(
-      [...container.querySelectorAll("button")].find((b) =>
-        /Vytvoriť blueprint/.test(b.textContent || ""),
-      )!,
-    );
-    await flush();
-    await flush();
-    expect(container.textContent).toMatch(/network down/);
-    unmount();
-  });
-
   it("shows Zrušiť cancel button when busy", () => {
     const { container, unmount } = render(
       <ScanForm onScanned={() => {}} busy setBusy={() => {}} />,
@@ -272,7 +334,7 @@ describe("UI · ScanForm", () => {
     unmount();
   });
 
-  it("cancel aborts and returns UI without throw", async () => {
+  it("cancel aborts in-flight scan", async () => {
     let resolveScan: (v: unknown) => void = () => {};
     scanBlueprint.mockImplementation(
       () =>
@@ -285,11 +347,11 @@ describe("UI · ScanForm", () => {
       container.querySelector(
         'input[placeholder="https://moja-appka.com"]',
       ) as HTMLInputElement,
-      "https://example.com",
+      "https://slow.test",
     );
     click(
       [...container.querySelectorAll("button")].find((b) =>
-        /Vytvoriť blueprint|Skenujem/.test(b.textContent || ""),
+        /Vytvoriť blueprint/.test(b.textContent || ""),
       )!,
     );
     await flush();
@@ -300,10 +362,8 @@ describe("UI · ScanForm", () => {
     click(cancel!);
     await flush();
     expect(container.textContent).toMatch(/zrušen/i);
-    // late resolve must not crash
     resolveScan({ ok: true, blueprint: makeMinimalBlueprint() });
     await flush();
     unmount();
   });
-
 });

@@ -3,28 +3,28 @@
 
 @theme {
   --color-bg: #0a0a0b;
-  --color-bg-elevated: #121214;
-  --color-bg-subtle: #1a1a1e;
+  --color-bg-elevated: #111113;
+  --color-bg-subtle: #161618;
   --color-fg: #f4f4f5;
   --color-fg-muted: #a1a1aa;
   --color-fg-subtle: #71717a;
-  --color-border: #2a2a30;
-  --color-border-strong: #3f3f46;
-  --color-accent: #d4d4d8;
+  --color-border: #1f1f23;
+  --color-border-strong: #2e2e35;
+  --color-accent: #c8a16e;
   --color-accent-fg: #0a0a0b;
-  --color-success: #4ade80;
+  --color-success: #34d399;
   --color-warning: #fbbf24;
   --color-danger: #f87171;
   --color-info: #7dd3fc;
-  --color-card: #121214;
-  --color-ring: #a1a1aa;
-  --color-primary: #e4e4e7;
+  --color-card: #111113;
+  --color-ring: #c8a16e;
+  --color-primary: #f4f4f5;
   --color-primary-fg: #0a0a0b;
-  --color-secondary: #1a1a1e;
+  --color-secondary: #161618;
   --color-secondary-fg: #e4e4e7;
-  --color-muted: #1a1a1e;
+  --color-muted: #161618;
   --color-muted-fg: #a1a1aa;
-  --color-input: #1a1a1e;
+  --color-input: #0a0a0b;
   --color-destructive: #f87171;
 
   --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -34,11 +34,11 @@
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
-  --radius-xl: 24px;
+  --radius-xl: 20px;
   --radius: 12px;
 
   --shadow-soft: 0 1px 0 color-mix(in oklab, white 4%, transparent),
-    0 12px 40px color-mix(in oklab, black 45%, transparent);
+    0 16px 48px color-mix(in oklab, black 50%, transparent);
 }
 
 @layer base {
@@ -88,6 +88,142 @@
     font-family: var(--font-mono);
   }
 
+  .ambient-glow {
+    pointer-events: none;
+    position: absolute;
+    left: 50%;
+    top: -8rem;
+    width: 32rem;
+    height: 18rem;
+    transform: translateX(-50%);
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--color-accent) 12%, transparent);
+    filter: blur(100px);
+  }
+
+  /* Premium focus ring for primary input — gold/warm, reduced motion safe */
+  .neon-border-wrapper {
+    position: relative;
+    border-radius: calc(var(--radius-md) + 2px);
+    padding: 1.5px;
+    overflow: hidden;
+    background: var(--color-border);
+  }
+
+  .neon-border-wrapper::before {
+    content: "";
+    position: absolute;
+    inset: -40%;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      color-mix(in oklab, var(--color-accent) 55%, transparent) 90deg,
+      color-mix(in oklab, var(--color-warning) 40%, transparent) 160deg,
+      color-mix(in oklab, var(--color-fg) 35%, transparent) 220deg,
+      transparent 360deg
+    );
+    animation: neon-spin 5s linear infinite;
+    opacity: 0.75;
+    z-index: 0;
+  }
+
+  .neon-border-wrapper > .neon-inner {
+    position: relative;
+    z-index: 1;
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+  }
+
+  .start-here-badge {
+    box-shadow: 0 0 12px color-mix(in oklab, var(--color-accent) 35%, transparent);
+  }
+
+  /* Long-press option toggles */
+  .toggle-btn {
+    position: relative;
+    touch-action: manipulation;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .toggle-neon-ring {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .toggle-neon-ring::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: 9999px;
+    padding: 1.5px;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      color-mix(in oklab, var(--color-accent) 70%, transparent) 80deg,
+      color-mix(in oklab, var(--color-warning) 45%, transparent) 150deg,
+      color-mix(in oklab, var(--color-fg) 30%, transparent) 220deg,
+      transparent 360deg
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: toggle-neon-spin 3.5s linear infinite;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .toggle-neon-ring > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .toggle-tip {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 40;
+    width: max-content;
+    max-width: 220px;
+    padding: 0.5rem 0.65rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+    color: var(--color-fg);
+    font-size: 11px;
+    line-height: 1.35;
+    box-shadow: var(--shadow-soft);
+    pointer-events: none;
+    text-align: center;
+  }
+
+  .toggle-tip::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: var(--color-border);
+  }
+
+  .toggle-hold-progress {
+    position: absolute;
+    inset: -3px;
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    border-top-color: color-mix(in oklab, var(--color-accent) 80%, transparent);
+    animation: toggle-hold-spin 0.5s linear infinite;
+    pointer-events: none;
+  }
+
   .shimmer {
     background: linear-gradient(
       90deg,
@@ -108,9 +244,58 @@
     }
   }
 
+  @keyframes neon-spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes toggle-neon-spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes toggle-hold-spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .shimmer {
+    .shimmer,
+    .neon-border-wrapper::before,
+    .toggle-neon-ring::before,
+    .toggle-hold-progress {
       animation: none;
+    }
+
+    .neon-border-wrapper::before {
+      opacity: 0.35;
+      background: linear-gradient(
+        90deg,
+        transparent,
+        color-mix(in oklab, var(--color-accent) 50%, transparent),
+        transparent
+      );
+    }
+
+    .toggle-neon-ring::before {
+      background: color-mix(in oklab, var(--color-accent) 55%, transparent);
+      opacity: 0.85;
+    }
+
+    .toggle-hold-progress {
+      border-color: color-mix(in oklab, var(--color-accent) 70%, transparent);
     }
 
     *,

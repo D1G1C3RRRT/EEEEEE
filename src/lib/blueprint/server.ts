@@ -9,6 +9,13 @@ import {
 } from "./db-store";
 import { scanToBlueprint } from "./scan";
 import type { Blueprint } from "./types";
+import {
+  installProcessErrorGuards,
+  withApiGuard,
+  toApiError,
+} from "@/lib/scanner/errors";
+
+installProcessErrorGuards();
 
 const memory = new Map<string, Blueprint>();
 
@@ -31,63 +38,67 @@ export const scanBlueprint = createServerFn({ method: "POST" })
   .validator((data: unknown) => scanSchema.parse(data))
   .handler(async (ctx) => {
     const data = ctx.data;
-    // AbortSignal when client cancels (TanStack may expose signal on context)
     const signal =
       "signal" in ctx && ctx.signal instanceof AbortSignal
         ? ctx.signal
         : undefined;
-    try {
-      const blueprint = await scanToBlueprint({
-        url: data.url,
-        html: data.html,
-        baseUrl: data.baseUrl,
-        maxPages: data.maxPages,
-        render: data.render,
-        wayback: data.wayback,
-        captureAssets: data.captureAssets,
-        wpJetEngine: data.wpJetEngine,
-        signal,
-      });
-      if (signal?.aborted) {
-        return { ok: false as const, error: "Sken bol zrušený." };
-      }
-      memory.set(blueprint.id, blueprint);
-      if (memory.size > 40) {
-        const first = memory.keys().next().value;
-        if (first) memory.delete(first);
-      }
+    return withApiGuard(async () => {
       try {
-        await saveBlueprintDb(blueprint);
+        const blueprint = await scanToBlueprint({
+          url: data.url,
+          html: data.html,
+          baseUrl: data.baseUrl,
+          maxPages: data.maxPages,
+          render: data.render,
+          wayback: data.wayback,
+          captureAssets: data.captureAssets,
+          wpJetEngine: data.wpJetEngine,
+          signal,
+        });
+        if (signal?.aborted) {
+          return { ok: false as const, error: "Sken bol zrušený.", code: "ABORTED" };
+        }
+        memory.set(blueprint.id, blueprint);
+        if (memory.size > 40) {
+          const first = memory.keys().next().value;
+          if (first) memory.delete(first);
+        }
+        try {
+          await saveBlueprintDb(blueprint);
+        } catch (err) {
+          console.warn("[blueprint] DB save failed:", err);
+        }
+        return { ok: true as const, blueprint };
       } catch (err) {
-        console.warn("[blueprint] DB save failed:", err);
+        if (
+          signal?.aborted ||
+          (err instanceof Error &&
+            (err.name === "AbortError" || /abort/i.test(err.message)))
+        ) {
+          return { ok: false as const, error: "Sken bol zrušený.", code: "ABORTED" };
+        }
+        return toApiError(err, "Sken zlyhal z neznámeho dôvodu.");
       }
-      return { ok: true as const, blueprint };
-    } catch (err) {
-      if (
-        signal?.aborted ||
-        (err instanceof Error &&
-          (err.name === "AbortError" || /abort/i.test(err.message)))
-      ) {
-        return { ok: false as const, error: "Sken bol zrušený." };
-      }
-      const message =
-        err instanceof Error ? err.message : "Sken zlyhal z neznámeho dôvodu.";
-      return { ok: false as const, error: message };
-    }
+    });
   });
 
 export const getBlueprint = createServerFn({ method: "GET" })
   .validator((data: unknown) => z.object({ id: z.string().min(1) }).parse(data))
   .handler(async ({ data }) => {
-    let bp = memory.get(data.id) ?? null;
-    if (!bp) {
-      try {
-        bp = await loadBlueprintDb(data.id);
-      } catch {
-        bp = null;
+    try {
+      let bp = memory.get(data.id) ?? null;
+      if (!bp) {
+        try {
+          bp = await loadBlueprintDb(data.id);
+        } catch {
+          bp = null;
+        }
       }
+      return { blueprint: bp };
+    } catch (err) {
+      console.error("[getBlueprint]", err);
+      return { blueprint: null };
     }
-    return { blueprint: bp };
   });
 
 export const listBlueprints = createServerFn({ method: "GET" }).handler(

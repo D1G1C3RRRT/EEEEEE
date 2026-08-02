@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { parse, type HTMLElement } from "node-html-parser";
-import { captureAssets } from "./capture-assets";
 import { detectTech } from "./detect-tech";
 import {
   extractDesignSystem,
@@ -8,6 +7,10 @@ import {
   type DesignSystemExtract,
 } from "./design-system";
 import { renderPageHtml } from "./render";
+import { fetchPageWithFallback, type PartialError } from "@/lib/scanner/pipeline";
+import { captureAssetsWithWarnings } from "./capture-assets";
+import { installProcessErrorGuards } from "@/lib/scanner/errors";
+
 import type {
   Blueprint,
   BlueprintAsset,
@@ -30,12 +33,13 @@ import { compileElementorFromBlueprint } from "./elementor-compiler";
 import type { ElementorTemplate } from "./elementor-compiler";
 import { extractWordPressArchitecture } from "./wordpress-jetengine";
 import type { WordPressArchitecture } from "./wordpress-jetengine";
-import { findWaybackSnapshot } from "./wayback";
 import {
   absolutizeOpenGraphMeta,
   absolutizeTwitterMeta,
 } from "./meta-urls";
 import { detectThinHtml, thinHtmlUserMessage } from "./thin-html";
+
+installProcessErrorGuards();
 
 
 
@@ -701,6 +705,7 @@ async function parseHtmlDocument(
 async function fetchPageHtml(
   url: string,
   render: boolean,
+  signal?: AbortSignal,
 ): Promise<{
   html: string;
   finalUrl: string;
@@ -711,7 +716,7 @@ async function fetchPageHtml(
 }> {
   if (render) {
     try {
-      const r = await renderPageHtml(url);
+      const r = await renderPageHtml(url, { signal, timeoutMs: 30_000 });
       return {
         html: r.html.slice(0, MAX_HTML_BYTES),
         finalUrl: r.finalUrl,
@@ -721,11 +726,12 @@ async function fetchPageHtml(
         rendered: true,
       };
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") throw err;
       // fall through to static fetch
       console.warn("[blueprint] headless render failed, fallback HTTP:", err);
     }
   }
-  const res = await fetchText(url);
+  const res = await fetchText(url, { signal });
   return {
     html: res.text,
     finalUrl: res.finalUrl,
@@ -753,6 +759,7 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
 
 
   const notes: string[] = [];
+  const partialErrors: PartialError[] = [];
   const limitations = [
     "Blueprint je frontend snapshot verejného obsahu (HTML/CSS/assety/stránky) — nie klon servera, DB ani privátnych API.",
     "Headless render pomáha pri SPA, ale stále nevidí dáta za loginom ani WebSocket/API payloady.",
@@ -782,53 +789,30 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
   } else if (input.url?.trim()) {
     const url = assertPublicUrl(input.url.trim());
     sourceUrl = url.toString();
-    let fetchedOk = false;
-    try {
-      const page = await fetchPageHtml(url.toString(), wantRender);
-      if (page.status != null && page.status >= 400) {
-        throw new Error(`HTTP ${page.status}`);
-      }
-      primaryHtml = page.html;
-      finalUrl = page.finalUrl;
-      statusCode = page.status;
-      headers = page.headers;
-      contentType = page.contentType;
-      rendered = page.rendered;
-      fetchedOk = true;
-      if (rendered) notes.push("Primárna stránka zachytená headless renderom (Playwright).");
-    } catch (err) {
-      if (!wantWayback) {
-        throw err instanceof Error
-          ? err
-          : new Error("Sken live URL zlyhal.");
-      }
-      notes.push(
-        `Live sken zlyhal (${err instanceof Error ? err.message : "error"}) — skúšam Wayback Machine.`,
-      );
+    const pipe = await fetchPageWithFallback({
+      url: url.toString(),
+      wantRender,
+      wantWayback,
+      signal: input.signal,
+    });
+    primaryHtml = pipe.html;
+    finalUrl = pipe.finalUrl;
+    statusCode = pipe.statusCode;
+    headers = pipe.headers;
+    contentType = pipe.contentType;
+    rendered = pipe.rendered;
+    waybackUrl = pipe.waybackUrl;
+    source = pipe.source;
+    partialErrors.push(...pipe.partialErrors);
+    if (pipe.stageUsed === "headless") {
+      notes.push("Primárna stránka zachytená headless renderom (Playwright shield).");
+    } else if (pipe.stageUsed === "http" && pipe.partialErrors.some((e) => e.stage === "headless")) {
+      notes.push("Headless zlyhal/timeout — pokračujem HTTP static fetch.");
+    } else if (pipe.source === "wayback") {
+      notes.push(`Obnovené z archive.org (fallback chain).`);
     }
-
-    if (!fetchedOk && wantWayback) {
-      const snap = await findWaybackSnapshot(url.toString());
-      if (!snap) {
-        throw new Error(
-          "Live URL nedostupná a Wayback Machine nemá snapshot. Vlož HTML manuálne.",
-        );
-      }
-      const page = await fetchPageHtml(snap.url, false);
-      if (page.status != null && page.status >= 400) {
-        throw new Error(`Wayback snapshot vrátil HTTP ${page.status}.`);
-      }
-      primaryHtml = page.html;
-      finalUrl = url.toString();
-      statusCode = page.status;
-      headers = page.headers;
-      contentType = page.contentType;
-      waybackUrl = snap.url;
-      source = "wayback";
-      rendered = false;
-      notes.push(
-        `Obnovené z archive.org (timestamp ${snap.timestamp}).`,
-      );
+    for (const e of pipe.partialErrors) {
+      notes.push(`[${e.stage}] ${e.message}`);
     }
   } else {
     throw new Error("Zadaj URL alebo vlož HTML.");
@@ -959,7 +943,7 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
 
     const harvestOne = async (nextUrl: string): Promise<PageHarvest | null> => {
       assertPublicUrl(nextUrl);
-      const pageFetch = await fetchPageHtml(nextUrl, false);
+      const pageFetch = await fetchPageHtml(nextUrl, false, input.signal);
       if (pageFetch.status != null && pageFetch.status >= 400) {
         // Represent as failed harvest with status (crawl layer records warning)
         return {
@@ -1111,9 +1095,38 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
   }
 
   if (wantAssets) {
-    assets = await captureAssets(assets);
-    const captured = assets.filter((a) => a.captured).length;
-    if (captured) notes.push(`Stiahnutých assetov do blueprintu: ${captured}.`);
+    try {
+      const cap = await captureAssetsWithWarnings(assets, {
+        signal: input.signal,
+      });
+      assets = cap.assets;
+      const captured = assets.filter((a) => a.captured).length;
+      if (captured) notes.push(`Stiahnutých assetov do blueprintu: ${captured}.`);
+      for (const w of cap.warnings.slice(0, 20)) {
+        partialErrors.push({
+          stage: "assets",
+          message: `${w.reason}: ${w.url}`.slice(0, 500),
+          at: new Date().toISOString(),
+        });
+      }
+      if (cap.skippedOversize) {
+        notes.push(
+          `Preskočených ${cap.skippedOversize} assetov nad limit veľkosti (memory guard).`,
+        );
+      }
+      if (cap.skippedBudget) {
+        notes.push(
+          `Preskočených ${cap.skippedBudget} assetov pre celkový budget ZIP (50 MB).`,
+        );
+      }
+    } catch (err) {
+      partialErrors.push({
+        stage: "assets",
+        message: err instanceof Error ? err.message : String(err),
+        at: new Date().toISOString(),
+      });
+      notes.push("Asset capture zlyhal — blueprint pokračuje bez binárnych assetov.");
+    }
   }
 
   const tech = detectTech({
@@ -1236,6 +1249,7 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
     scanWarnings,
     isThinHtml: thin.isThinHtml,
     thinHtmlReasons: thin.reasons,
+    partialErrors: partialErrors.length ? partialErrors : [],
     stats: {
       htmlBytes: Buffer.byteLength(primary.html, "utf8"),
       assetCount: assets.length,

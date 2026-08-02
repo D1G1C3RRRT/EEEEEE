@@ -42,6 +42,9 @@ import { partialScanBadgeLabel } from "@/lib/blueprint/crawl-pages";
 import {
   generateAiRebuildPrompt,
 } from "@/lib/ai-rebuild/prompter";
+import {
+  generateArchitectureCompilerPrompt,
+} from "@/lib/ai-rebuild/architecture-compiler";
 import { cn, formatBytes } from "@/lib/utils";
 
 function confVariant(c: "high" | "medium" | "low") {
@@ -83,9 +86,13 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
   const [tab, setTab] = useState("overview");
   const [copied, setCopied] = useState(false);
   const [zipping, setZipping] = useState(false);
-  const [copiedAi, setCopiedAi] = useState<"prompt" | "tw" | null>(null);
+  const [copiedAi, setCopiedAi] = useState<"prompt" | "tw" | "arch" | null>(null);
 
   const aiRebuild = useMemo(() => generateAiRebuildPrompt(blueprint), [blueprint]);
+  const archCompiler = useMemo(
+    () => generateArchitectureCompilerPrompt(blueprint),
+    [blueprint],
+  );
 
   const pages = blueprint.pages ?? [];
   const capturedCount =
@@ -1230,8 +1237,8 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
                 AI Rebuild Studio
               </CardTitle>
               <CardDescription>
-                Prompt pre Claude / ChatGPT / Cursor — rebuild UI z design tokenov a štruktúry blueprintu
-                (Next.js App Router + Tailwind).
+                Architecture-first rebuild: SPA UI Architecture Compiler + Tailwind tokens.
+                Kopíruj prompt do Claude / ChatGPT / Cursor.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1241,10 +1248,30 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
                   variant="default"
                   size="sm"
                   onClick={async () => {
+                    await navigator.clipboard.writeText(archCompiler.fullPrompt);
+                    setCopiedAi("arch");
+                    toast.success("Kopírované!", {
+                      description: "Architecture Spec prompt je v schránke",
+                    });
+                    setTimeout(() => setCopiedAi(null), 1600);
+                  }}
+                >
+                  {copiedAi === "arch" ? (
+                    <Check className="size-3.5" />
+                  ) : (
+                    <Sparkles className="size-3.5" />
+                  )}
+                  Architecture Spec prompt
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
                     await navigator.clipboard.writeText(aiRebuild.fullPrompt);
                     setCopiedAi("prompt");
                     toast.success("Kopírované!", {
-                      description: "Prompt pre Claude / ChatGPT je v schránke",
+                      description: "Klasický rebuild prompt je v schránke",
                     });
                     setTimeout(() => setCopiedAi(null), 1600);
                   }}
@@ -1254,7 +1281,7 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
                   ) : (
                     <Wand2 className="size-3.5" />
                   )}
-                  Kopírovať prompt pre Claude/ChatGPT
+                  Klasický rebuild prompt
                 </Button>
                 <Button
                   type="button"
@@ -1274,7 +1301,7 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
                   ) : (
                     <Copy className="size-3.5" />
                   )}
-                  Kopírovať ako Tailwind Config
+                  Tailwind Config
                 </Button>
                 <Button
                   type="button"
@@ -1282,26 +1309,34 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
                   size="sm"
                   onClick={() => {
                     downloadText(
-                      `${blueprint.id}-ai-rebuild-prompt.txt`,
-                      aiRebuild.fullPrompt,
+                      `${blueprint.id}-architecture-compiler.txt`,
+                      archCompiler.fullPrompt,
                       "text/plain;charset=utf-8",
                     );
-                    toast.success("Prompt stiahnutý");
+                    toast.success("Architecture prompt stiahnutý");
                   }}
                 >
                   <Download className="size-3.5" />
-                  Stiahnuť .txt
+                  Stiahnuť Architecture .txt
                 </Button>
               </div>
 
+              {blueprint.isThinHtml && (
+                <div className="rounded-[var(--radius-md)] border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
+                  Thin HTML / SPA — Architecture Compiler beží v{" "}
+                  <strong className="text-fg">aggressive</strong> režime (rekonštrukcia shellu z
+                  links/tech/forms).
+                </div>
+              )}
+
               <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6 text-xs">
                 {[
+                  ["Routes", archCompiler.meta.routeCandidates],
+                  ["Hints", archCompiler.meta.componentHints],
+                  ["Formuláre", archCompiler.meta.formCount],
+                  ["Tech", archCompiler.meta.techCount],
+                  ["Thin HTML", archCompiler.meta.thinHtml ? "áno" : "nie"],
                   ["Farby", aiRebuild.meta.colorCount],
-                  ["Fonty", aiRebuild.meta.fontCount],
-                  ["Headings", aiRebuild.meta.headingCount],
-                  ["Formuláre", aiRebuild.meta.formCount],
-                  ["Tech", aiRebuild.meta.techCount],
-                  ["Title", aiRebuild.meta.title ? "✓" : "—"],
                 ].map(([label, val]) => (
                   <div
                     key={String(label)}
@@ -1315,10 +1350,33 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
 
               <div className="space-y-2">
                 <h4 className="text-sm font-medium flex items-center gap-2">
-                  <Bot className="size-3.5" />
-                  System prompt
+                  <Sparkles className="size-3.5" />
+                  Architecture Compiler — system prompt
                 </h4>
-                <ScrollArea className="h-[140px] rounded-[var(--radius-md)] border border-border bg-bg-elevated">
+                <ScrollArea className="h-[160px] rounded-[var(--radius-md)] border border-border bg-bg-elevated">
+                  <pre className="p-3 text-[11px] leading-relaxed mono text-fg-muted whitespace-pre-wrap break-words">
+                    {archCompiler.systemPrompt}
+                  </pre>
+                </ScrollArea>
+              </div>
+
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">
+                  Architecture Compiler — user (slim evidence JSON)
+                </h4>
+                <ScrollArea className="h-[280px] rounded-[var(--radius-md)] border border-border bg-[#0c0c0e]">
+                  <pre className="p-3 text-[11px] leading-relaxed mono text-violet-200/90 whitespace-pre-wrap break-words">
+                    {archCompiler.userPrompt}
+                  </pre>
+                </ScrollArea>
+              </div>
+
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium flex items-center gap-2">
+                  <Bot className="size-3.5" />
+                  Klasický rebuild — system prompt
+                </h4>
+                <ScrollArea className="h-[100px] rounded-[var(--radius-md)] border border-border bg-bg-elevated">
                   <pre className="p-3 text-[11px] leading-relaxed mono text-fg-muted whitespace-pre-wrap break-words">
                     {aiRebuild.systemPrompt}
                   </pre>
@@ -1326,17 +1384,8 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
               </div>
 
               <div className="space-y-2">
-                <h4 className="text-sm font-medium">User prompt (design tokens + štruktúra)</h4>
-                <ScrollArea className="h-[320px] rounded-[var(--radius-md)] border border-border bg-[#0c0c0e]">
-                  <pre className="p-3 text-[11px] leading-relaxed mono text-emerald-200/90 whitespace-pre-wrap break-words">
-                    {aiRebuild.userPrompt}
-                  </pre>
-                </ScrollArea>
-              </div>
-
-              <div className="space-y-2">
                 <h4 className="text-sm font-medium">Tailwind config fragment</h4>
-                <ScrollArea className="h-[200px] rounded-[var(--radius-md)] border border-border bg-[#0c0c0e]">
+                <ScrollArea className="h-[160px] rounded-[var(--radius-md)] border border-border bg-[#0c0c0e]">
                   <pre className="p-3 text-[11px] leading-relaxed mono text-sky-200/90 whitespace-pre-wrap break-words">
                     {aiRebuild.tailwindConfigJs}
                   </pre>

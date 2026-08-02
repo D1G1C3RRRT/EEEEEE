@@ -53,6 +53,7 @@ export function normalizeImportedBlueprint(raw: unknown): Blueprint {
   if (bp.scanWarnings === undefined) bp.scanWarnings = null;
   if (bp.isThinHtml == null) bp.isThinHtml = false;
   if (!Array.isArray(bp.thinHtmlReasons)) bp.thinHtmlReasons = [];
+  if (!Array.isArray(bp.partialErrors)) bp.partialErrors = [];
   if (!bp.design) {
     bp.design = {
       colors: [],

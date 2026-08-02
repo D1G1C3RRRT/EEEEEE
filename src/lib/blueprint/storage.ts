@@ -1,4 +1,5 @@
 import type { Blueprint } from "./types";
+import { safeJsonStringify } from "@/lib/scanner/assets";
 import {
   compileElementorFromBlueprint,
   exportElementorTemplateJson,
@@ -72,7 +73,7 @@ export function deleteLocalBlueprint(id: string) {
 }
 
 export function exportBlueprintJson(bp: Blueprint): string {
-  return JSON.stringify(bp, null, 2);
+  return safeJsonStringify(bp, 2);
 }
 
 export function downloadText(filename: string, content: string, mime: string) {

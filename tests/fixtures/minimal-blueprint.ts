@@ -73,6 +73,7 @@ export function makeMinimalBlueprint(overrides: Partial<Blueprint> = {}): Bluepr
     elementorTemplate: null,
     isThinHtml: false,
     thinHtmlReasons: [],
+    partialErrors: [],
     stats: {
       htmlBytes: 128,
       assetCount: 1,

@@ -35,25 +35,37 @@ async function withPage(browser, fn) {
   }
 }
 
-/** Fast scan: uncheck headless, set pages=1, keep wayback off speed */
+/**
+ * Fast scan: turn OFF headless / wayback / assets / crawl / wp.
+ * Icon toggles: short click = tip only; Space/Enter toggles (a11y).
+ */
+async function toggleOff(page, testId) {
+  const btn = page.locator(`[data-testid="${testId}"]`);
+  if ((await btn.count()) === 0) return;
+  const pressed = await btn.first().getAttribute("aria-checked");
+  if (pressed !== "true") return;
+  await btn.first().focus();
+  await page.keyboard.press("Space");
+  const stillOn = await btn.first().getAttribute("aria-checked");
+  if (stillOn === "true") {
+    const box = await btn.first().boundingBox();
+    if (box) {
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.waitForTimeout(560);
+      await page.mouse.up();
+    }
+  }
+}
+
 async function configureFastScan(page) {
-  // uncheck headless render (first checkbox)
-  const checks = page.locator('label:has-text("Headless render") input[type="checkbox"]');
-  if (await checks.count()) {
-    if (await checks.first().isChecked()) await checks.first().uncheck();
-  }
-  const wayback = page.locator('label:has-text("Wayback") input[type="checkbox"]');
-  if (await wayback.count()) {
-    if (await wayback.first().isChecked()) await wayback.first().uncheck();
-  }
-  const assets = page.locator('label:has-text("Stiahnuť assety") input[type="checkbox"]');
-  if (await assets.count()) {
-    if (await assets.first().isChecked()) await assets.first().uncheck();
-  }
-  const pagesInput = page.locator('label:has-text("Crawl") input[type="number"]');
-  if (await pagesInput.count()) {
-    await pagesInput.first().fill("1");
-  }
+  await toggleOff(page, "opt-render");
+  await toggleOff(page, "opt-wayback");
+  await toggleOff(page, "opt-assets");
+  await toggleOff(page, "opt-crawl");
+  await toggleOff(page, "opt-wp");
 }
 
 async function main() {

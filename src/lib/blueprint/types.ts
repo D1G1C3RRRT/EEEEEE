@@ -198,6 +198,13 @@ export interface Blueprint {
   isThinHtml?: boolean;
   /** Human-readable reasons for isThinHtml */
   thinHtmlReasons?: string[];
+  /** Non-fatal stage failures (headless/http/css/assets…) */
+  partialErrors?: Array<{
+    stage: string;
+    message: string;
+    statusCode?: number | null;
+    at: string;
+  }>;
   stats: {
     htmlBytes: number;
     assetCount: number;
