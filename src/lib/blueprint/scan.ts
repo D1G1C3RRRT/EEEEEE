@@ -1,0 +1,914 @@
+import { createHash } from "node:crypto";
+import { parse, type HTMLElement } from "node-html-parser";
+import { captureAssets } from "./capture-assets";
+import { detectTech } from "./detect-tech";
+import { renderPageHtml } from "./render";
+import type {
+  Blueprint,
+  BlueprintAsset,
+  BlueprintForm,
+  BlueprintLink,
+  BlueprintPage,
+  DesignTokens,
+  DomOutlineNode,
+  ScanRequest,
+} from "./types";
+import { findWaybackSnapshot } from "./wayback";
+
+const MAX_HTML_BYTES = 2_500_000;
+const MAX_CSS_FILES = 12;
+const MAX_CSS_BYTES = 800_000;
+const FETCH_TIMEOUT_MS = 18_000;
+const MAX_CRAWL_PAGES = 20;
+const USER_AGENT =
+  "BlueprintScanner/1.1 (+https://local; public page reconstruction)";
+
+const BLOCKED_HOSTS = new Set([
+  "localhost",
+  "metadata.google.internal",
+  "metadata.google",
+]);
+
+function isPrivateIp(hostname: string): boolean {
+  if (hostname === "0.0.0.0" || hostname === "::" || hostname === "[::]") return true;
+  if (hostname === "127.0.0.1" || hostname.startsWith("127.")) return true;
+  if (hostname === "::1" || hostname === "[::1]") return true;
+  const m = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (m) {
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a === 10) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+  }
+  if (hostname.endsWith(".local") || hostname.endsWith(".internal")) return true;
+  return false;
+}
+
+export function assertPublicUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("Neplatná URL. Použi formát https://example.com");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Povolené sú len http a https URL.");
+  }
+  const host = url.hostname.toLowerCase();
+  if (BLOCKED_HOSTS.has(host) || isPrivateIp(host)) {
+    throw new Error(
+      "Lokálne a privátne adresy nie je možné skenovať zo servera. " +
+        "Ak máš HTML uložené lokálne, vlož ho v režime „Vložiť HTML“.",
+    );
+  }
+  return url;
+}
+
+async function fetchText(
+  url: string,
+  opts?: { maxBytes?: number },
+): Promise<{
+  text: string;
+  finalUrl: string;
+  status: number;
+  headers: Record<string, string>;
+  contentType: string | null;
+}> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "user-agent": USER_AGENT,
+        accept: "text/html,application/xhtml+xml,text/css,*/*;q=0.8",
+        "accept-language": "en,sk;q=0.9",
+      },
+    });
+    const headers: Record<string, string> = {};
+    res.headers.forEach((v, k) => {
+      headers[k.toLowerCase()] = v;
+    });
+    const contentType = headers["content-type"] ?? null;
+    const max = opts?.maxBytes ?? MAX_HTML_BYTES;
+    const buf = new Uint8Array(await res.arrayBuffer());
+    const sliced = buf.byteLength > max ? buf.slice(0, max) : buf;
+    const text = new TextDecoder("utf-8", { fatal: false }).decode(sliced);
+    return {
+      text,
+      finalUrl: res.url || url,
+      status: res.status,
+      headers,
+      contentType,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function absUrl(base: string, href: string | undefined | null): string | null {
+  if (!href) return null;
+  const h = href.trim();
+  if (!h || h.startsWith("data:") || h.startsWith("javascript:") || h.startsWith("#"))
+    return null;
+  try {
+    return new URL(h, base).toString();
+  } catch {
+    return null;
+  }
+}
+
+function textContent(el: HTMLElement, max = 120): string {
+  const t = (el.text || "").replace(/\s+/g, " ").trim();
+  return t.length > max ? `${t.slice(0, max)}…` : t;
+}
+
+function extractMeta(root: HTMLElement, base: string) {
+  const get = (sel: string, attr = "content") =>
+    root.querySelector(sel)?.getAttribute(attr)?.trim() || "";
+
+  const title =
+    root.querySelector("title")?.text?.trim() ||
+    get('meta[property="og:title"]') ||
+    get('meta[name="twitter:title"]') ||
+    "";
+
+  const og: Record<string, string> = {};
+  const twitter: Record<string, string> = {};
+  for (const el of root.querySelectorAll("meta")) {
+    const prop = el.getAttribute("property") || "";
+    const name = el.getAttribute("name") || "";
+    const content = el.getAttribute("content") || "";
+    if (prop.startsWith("og:") && content) og[prop] = content;
+    if (name.startsWith("twitter:") && content) twitter[name] = content;
+  }
+
+  const icons = root
+    .querySelectorAll('link[rel*="icon"]')
+    .map((l) => absUrl(base, l.getAttribute("href")))
+    .filter((u): u is string => Boolean(u));
+
+  return {
+    title,
+    description:
+      get('meta[name="description"]') ||
+      get('meta[property="og:description"]') ||
+      "",
+    canonical: absUrl(base, get('link[rel="canonical"]', "href")),
+    language:
+      root.querySelector("html")?.getAttribute("lang") ||
+      get('meta[http-equiv="content-language"]') ||
+      null,
+    robots: get('meta[name="robots"]') || null,
+    og,
+    twitter,
+    icons,
+    themeColor: get('meta[name="theme-color"]') || null,
+    viewport: get('meta[name="viewport"]') || null,
+  };
+}
+
+function extractDesign(html: string, cssBundles: string[]): DesignTokens {
+  const css = cssBundles.join("\n");
+  const blob = `${html}\n${css}`;
+
+  const colorSet = new Set<string>();
+  const colorRe =
+    /#(?:[0-9a-fA-F]{3,4}){1,2}\b|rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+(?:\s*,\s*[\d.]+)?\s*\)|hsla?\(\s*[\d.]+\s*,\s*[\d.%]+\s*,\s*[\d.%]+(?:\s*,\s*[\d.]+)?\s*\)|oklch\([^)]+\)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = colorRe.exec(blob)) && colorSet.size < 48) {
+    colorSet.add(m[0].toLowerCase());
+  }
+
+  const fontSet = new Set<string>();
+  const fontFace = /font-family\s*:\s*([^;}{]+)/gi;
+  while ((m = fontFace.exec(blob)) && fontSet.size < 24) {
+    const parts = m[1]
+      .split(",")
+      .map((p) => p.trim().replace(/^["']|["']$/g, ""))
+      .filter(
+        (p) =>
+          p &&
+          !/^(inherit|initial|unset|serif|sans-serif|monospace|system-ui)$/i.test(
+            p,
+          ),
+      );
+    for (const p of parts) fontSet.add(p);
+  }
+
+  const gFont = /family=([^&"']+)/gi;
+  while ((m = gFont.exec(html)) && fontSet.size < 24) {
+    decodeURIComponent(m[1])
+      .split("|")
+      .forEach((f) => {
+        const name = f.split(":")[0]?.replace(/\+/g, " ").trim();
+        if (name) fontSet.add(name);
+      });
+  }
+
+  const cssVariables: Record<string, string> = {};
+  const varRe = /(--[a-zA-Z0-9-_]+)\s*:\s*([^;}{]+)/g;
+  while ((m = varRe.exec(css)) && Object.keys(cssVariables).length < 80) {
+    cssVariables[m[1]] = m[2].trim();
+  }
+
+  const borderRadii = new Set<string>();
+  const radRe = /border-radius\s*:\s*([^;}{]+)/gi;
+  while ((m = radRe.exec(css)) && borderRadii.size < 20) {
+    borderRadii.add(m[1].trim());
+  }
+
+  const shadows = new Set<string>();
+  const shRe = /box-shadow\s*:\s*([^;}{]+)/gi;
+  while ((m = shRe.exec(css)) && shadows.size < 16) {
+    shadows.add(m[1].trim().slice(0, 160));
+  }
+
+  const spacingHints = new Set<string>();
+  const spRe = /(?:padding|margin|gap)\s*:\s*([^;}{]+)/gi;
+  while ((m = spRe.exec(css)) && spacingHints.size < 24) {
+    spacingHints.add(m[1].trim());
+  }
+
+  return {
+    colors: [...colorSet],
+    fonts: [...fontSet],
+    cssVariables,
+    borderRadii: [...borderRadii],
+    shadows: [...shadows],
+    spacingHints: [...spacingHints],
+  };
+}
+
+function buildOutline(el: HTMLElement, depth = 0): DomOutlineNode | null {
+  if (depth > 5) return null;
+  const tag = el.tagName?.toLowerCase?.() || el.rawTagName?.toLowerCase?.();
+  if (
+    !tag ||
+    ["script", "style", "noscript", "svg", "path", "meta", "link"].includes(tag)
+  )
+    return null;
+
+  const id = el.getAttribute("id") || undefined;
+  const classAttr = el.getAttribute("class") || "";
+  const classes = classAttr
+    ? classAttr.split(/\s+/).filter(Boolean).slice(0, 8)
+    : undefined;
+  const role = el.getAttribute("role") || undefined;
+
+  const children: DomOutlineNode[] = [];
+  if (depth < 5) {
+    for (const child of el.childNodes) {
+      if ((child as HTMLElement).nodeType === 1) {
+        const node = buildOutline(child as HTMLElement, depth + 1);
+        if (node) children.push(node);
+        if (children.length >= 12) break;
+      }
+    }
+  }
+
+  const text =
+    children.length === 0 ? textContent(el, 80) || undefined : undefined;
+
+  if (!id && !classes?.length && !role && !text && children.length === 0) {
+    return null;
+  }
+
+  return {
+    tag,
+    ...(id ? { id } : {}),
+    ...(classes?.length ? { classes } : {}),
+    ...(role ? { role } : {}),
+    ...(text ? { text } : {}),
+    ...(children.length ? { children } : {}),
+  };
+}
+
+function extractLinks(root: HTMLElement, base: string): BlueprintLink[] {
+  const origin = new URL(base).origin;
+  const seen = new Set<string>();
+  const links: BlueprintLink[] = [];
+  for (const a of root.querySelectorAll("a[href]")) {
+    const href = absUrl(base, a.getAttribute("href"));
+    if (!href || seen.has(href)) continue;
+    seen.add(href);
+    let internal = false;
+    try {
+      internal = new URL(href).origin === origin;
+    } catch {
+      internal = false;
+    }
+    links.push({
+      href,
+      text: textContent(a, 60),
+      internal,
+    });
+    if (links.length >= 120) break;
+  }
+  return links;
+}
+
+function extractForms(root: HTMLElement, base: string): BlueprintForm[] {
+  const forms: BlueprintForm[] = [];
+  for (const form of root.querySelectorAll("form")) {
+    const action = absUrl(base, form.getAttribute("action")) || base;
+    const method = (form.getAttribute("method") || "get").toUpperCase();
+    const fields: BlueprintForm["fields"] = [];
+    for (const input of form.querySelectorAll("input, select, textarea")) {
+      const name = input.getAttribute("name") || "";
+      if (!name) continue;
+      fields.push({
+        name,
+        type: input.getAttribute("type") || input.tagName.toLowerCase(),
+        required: input.hasAttribute("required"),
+      });
+    }
+    forms.push({ action, method, fields: fields.slice(0, 40) });
+    if (forms.length >= 20) break;
+  }
+  return forms;
+}
+
+function extractAssets(root: HTMLElement, base: string): BlueprintAsset[] {
+  const assets: BlueprintAsset[] = [];
+  const push = (url: string | null, type: BlueprintAsset["type"]) => {
+    if (!url) return;
+    if (assets.some((a) => a.url === url)) return;
+    assets.push({ url, type });
+  };
+
+  for (const img of root.querySelectorAll("img[src]")) {
+    push(absUrl(base, img.getAttribute("src")), "image");
+  }
+  for (const s of root.querySelectorAll("script[src]")) {
+    push(absUrl(base, s.getAttribute("src")), "script");
+  }
+  for (const l of root.querySelectorAll('link[rel="stylesheet"]')) {
+    push(absUrl(base, l.getAttribute("href")), "stylesheet");
+  }
+  for (const l of root.querySelectorAll('link[rel*="icon"]')) {
+    push(absUrl(base, l.getAttribute("href")), "icon");
+  }
+  for (const img of root.querySelectorAll("img[srcset], source[srcset]")) {
+    const srcset = img.getAttribute("srcset") || "";
+    for (const part of srcset.split(",")) {
+      const u = part.trim().split(/\s+/)[0];
+      push(absUrl(base, u), "image");
+    }
+  }
+  return assets.slice(0, 200);
+}
+
+function extractHeadings(root: HTMLElement) {
+  const out: Array<{ level: number; text: string }> = [];
+  for (let level = 1; level <= 6; level++) {
+    for (const h of root.querySelectorAll(`h${level}`)) {
+      const text = textContent(h, 140);
+      if (text) out.push({ level, text });
+      if (out.length >= 60) return out;
+    }
+  }
+  return out;
+}
+
+function makeId(sourceLabel: string): string {
+  const stamp = new Date()
+    .toISOString()
+    .replace(/[-:TZ.]/g, "")
+    .slice(0, 14);
+  const slug =
+    sourceLabel
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_|_$/g, "")
+      .slice(0, 28) || "page";
+  const rnd = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `BLUEPRINT_${slug}_${stamp}_${rnd}`;
+}
+
+function rewriteAssetUrls(html: string, base: string): string {
+  return html
+    .replace(
+      /(\s(?:src|href)=["'])([^"']+)(["'])/gi,
+      (full, pre, url, post) => {
+        const abs = absUrl(base, url);
+        return abs ? `${pre}${abs}${post}` : full;
+      },
+    )
+    .replace(/(\ssrcset=["'])([^"']+)(["'])/gi, (full, pre, srcset, post) => {
+      const next = srcset
+        .split(",")
+        .map((part: string) => {
+          const [u, d] = part.trim().split(/\s+/);
+          const abs = absUrl(base, u);
+          return abs ? `${abs}${d ? ` ${d}` : ""}` : part.trim();
+        })
+        .join(", ");
+      return `${pre}${next}${post}`;
+    });
+}
+
+async function loadStylesheets(
+  root: HTMLElement,
+  base: string,
+): Promise<Array<{ url: string; css: string }>> {
+  const hrefs: string[] = [];
+  for (const l of root.querySelectorAll('link[rel="stylesheet"]')) {
+    const u = absUrl(base, l.getAttribute("href"));
+    if (u) hrefs.push(u);
+  }
+  const unique = [...new Set(hrefs)].slice(0, MAX_CSS_FILES);
+  const bundles: Array<{ url: string; css: string }> = [];
+
+  for (const s of root.querySelectorAll("style")) {
+    const css = s.text || "";
+    if (css.trim()) {
+      bundles.push({ url: "inline:style", css: css.slice(0, MAX_CSS_BYTES) });
+    }
+  }
+
+  await Promise.all(
+    unique.map(async (url) => {
+      try {
+        const res = await fetchText(url, { maxBytes: MAX_CSS_BYTES });
+        if (res.status >= 200 && res.status < 400 && res.text) {
+          bundles.push({ url, css: res.text });
+        }
+      } catch {
+        /* skip */
+      }
+    }),
+  );
+
+  return bundles;
+}
+
+function pullCssUrls(css: string, base: string, assets: BlueprintAsset[]) {
+  const re = /url\(\s*['"]?([^'")\s]+)['"]?\s*\)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(css)) && assets.length < 250) {
+    const raw = m[1];
+    if (raw.startsWith("data:")) continue;
+    const url = absUrl(base, raw);
+    if (!url || assets.some((a) => a.url === url)) continue;
+    const type: BlueprintAsset["type"] =
+      /\.(woff2?|ttf|otf|eot)(\?|$)/i.test(url)
+        ? "font"
+        : /\.(png|jpe?g|gif|webp|svg|avif|ico)(\?|$)/i.test(url)
+          ? "image"
+          : "other";
+    assets.push({ url, type });
+  }
+}
+
+function pickSafeHeaders(headers: Record<string, string>): Record<string, string> {
+  const keep = [
+    "content-type",
+    "server",
+    "x-powered-by",
+    "x-frame-options",
+    "content-security-policy",
+    "strict-transport-security",
+    "x-vercel-id",
+    "cf-ray",
+    "x-nf-request-id",
+    "cache-control",
+  ];
+  const out: Record<string, string> = {};
+  for (const k of keep) {
+    if (headers[k]) out[k] = headers[k];
+  }
+  return out;
+}
+
+function normalizePageUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    u.hash = "";
+    // strip trailing slash for dedupe except root
+    if (u.pathname.length > 1 && u.pathname.endsWith("/")) {
+      u.pathname = u.pathname.slice(0, -1);
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+type ParsedPage = {
+  html: string;
+  base: string;
+  statusCode: number | null;
+  headers: Record<string, string>;
+  contentType: string | null;
+  meta: ReturnType<typeof extractMeta>;
+  links: BlueprintLink[];
+  forms: BlueprintForm[];
+  assets: BlueprintAsset[];
+  headings: Array<{ level: number; text: string }>;
+  outline: DomOutlineNode[];
+  scripts: string[];
+  stylesheets: string[];
+  cssBundles: Array<{ url: string; css: string }>;
+  design: DesignTokens;
+  rewritten: string;
+  contentHash: string;
+};
+
+async function parseHtmlDocument(
+  html: string,
+  base: string,
+  headers: Record<string, string>,
+  statusCode: number | null,
+  contentType: string | null,
+): Promise<ParsedPage> {
+  const root = parse(html, {
+    comment: false,
+    blockTextElements: { script: true, style: true, noscript: true },
+  });
+  const meta = extractMeta(root, base);
+  const links = extractLinks(root, base);
+  const forms = extractForms(root, base);
+  const assets = extractAssets(root, base);
+  const headings = extractHeadings(root);
+  const cssBundles = await loadStylesheets(root, base);
+  for (const b of cssBundles) {
+    pullCssUrls(b.css, b.url.startsWith("inline:") ? base : b.url, assets);
+  }
+  const design = extractDesign(
+    html,
+    cssBundles.map((b) => b.css),
+  );
+  const body = root.querySelector("body") || root;
+  const outlineRoot = buildOutline(body as HTMLElement, 0);
+  const outline = outlineRoot ? [outlineRoot] : [];
+  const scripts = root
+    .querySelectorAll("script[src]")
+    .map((s) => absUrl(base, s.getAttribute("src")))
+    .filter((u): u is string => Boolean(u));
+  const stylesheets = root
+    .querySelectorAll('link[rel="stylesheet"]')
+    .map((s) => absUrl(base, s.getAttribute("href")))
+    .filter((u): u is string => Boolean(u));
+  const rewritten = rewriteAssetUrls(html, base);
+  const contentHash = createHash("sha256").update(html).digest("hex");
+  return {
+    html,
+    base,
+    statusCode,
+    headers,
+    contentType,
+    meta,
+    links,
+    forms,
+    assets,
+    headings,
+    outline,
+    scripts,
+    stylesheets,
+    cssBundles,
+    design,
+    rewritten,
+    contentHash,
+  };
+}
+
+async function fetchPageHtml(
+  url: string,
+  render: boolean,
+): Promise<{
+  html: string;
+  finalUrl: string;
+  status: number | null;
+  headers: Record<string, string>;
+  contentType: string | null;
+  rendered: boolean;
+}> {
+  if (render) {
+    try {
+      const r = await renderPageHtml(url);
+      return {
+        html: r.html.slice(0, MAX_HTML_BYTES),
+        finalUrl: r.finalUrl,
+        status: r.statusCode,
+        headers: { "content-type": "text/html; charset=utf-8" },
+        contentType: "text/html",
+        rendered: true,
+      };
+    } catch (err) {
+      // fall through to static fetch
+      console.warn("[blueprint] headless render failed, fallback HTTP:", err);
+    }
+  }
+  const res = await fetchText(url);
+  return {
+    html: res.text,
+    finalUrl: res.finalUrl,
+    status: res.status,
+    headers: res.headers,
+    contentType: res.contentType,
+    rendered: false,
+  };
+}
+
+export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
+  const started = Date.now();
+  const maxPages = Math.min(
+    MAX_CRAWL_PAGES,
+    Math.max(1, Math.floor(input.maxPages ?? 1)),
+  );
+  const wantRender = input.render !== false;
+  const wantWayback = input.wayback !== false;
+  const wantAssets = input.captureAssets !== false;
+
+  const notes: string[] = [];
+  const limitations = [
+    "Blueprint je frontend snapshot verejného obsahu (HTML/CSS/assety/stránky) — nie klon servera, DB ani privátnych API.",
+    "Headless render pomáha pri SPA, ale stále nevidí dáta za loginom ani WebSocket/API payloady.",
+    "Crawl je same-origin s limitom stránok; asset capture má limity veľkosti.",
+    "Lokálne URL (localhost) skenuj cez „Vložiť HTML“.",
+  ];
+
+  let source: Blueprint["source"] = "url";
+  let sourceUrl: string | null = null;
+  let waybackUrl: string | null = null;
+  let rendered = false;
+
+  let primaryHtml = "";
+  let finalUrl: string | null = null;
+  let statusCode: number | null = null;
+  let headers: Record<string, string> = {};
+  let contentType: string | null = null;
+
+  if (input.html && input.html.trim()) {
+    source = "html";
+    primaryHtml = input.html.slice(0, MAX_HTML_BYTES);
+    sourceUrl = input.baseUrl?.trim() || null;
+    finalUrl = sourceUrl;
+    notes.push("Blueprint z vloženého HTML (offline / bez prístupu k URL).");
+  } else if (input.url?.trim()) {
+    const url = assertPublicUrl(input.url.trim());
+    sourceUrl = url.toString();
+    let fetchedOk = false;
+    try {
+      const page = await fetchPageHtml(url.toString(), wantRender);
+      if (page.status != null && page.status >= 400) {
+        throw new Error(`HTTP ${page.status}`);
+      }
+      primaryHtml = page.html;
+      finalUrl = page.finalUrl;
+      statusCode = page.status;
+      headers = page.headers;
+      contentType = page.contentType;
+      rendered = page.rendered;
+      fetchedOk = true;
+      if (rendered) notes.push("Primárna stránka zachytená headless renderom (Playwright).");
+    } catch (err) {
+      if (!wantWayback) {
+        throw err instanceof Error
+          ? err
+          : new Error("Sken live URL zlyhal.");
+      }
+      notes.push(
+        `Live sken zlyhal (${err instanceof Error ? err.message : "error"}) — skúšam Wayback Machine.`,
+      );
+    }
+
+    if (!fetchedOk && wantWayback) {
+      const snap = await findWaybackSnapshot(url.toString());
+      if (!snap) {
+        throw new Error(
+          "Live URL nedostupná a Wayback Machine nemá snapshot. Vlož HTML manuálne.",
+        );
+      }
+      const page = await fetchPageHtml(snap.url, false);
+      if (page.status != null && page.status >= 400) {
+        throw new Error(`Wayback snapshot vrátil HTTP ${page.status}.`);
+      }
+      primaryHtml = page.html;
+      finalUrl = url.toString();
+      statusCode = page.status;
+      headers = page.headers;
+      contentType = page.contentType;
+      waybackUrl = snap.url;
+      source = "wayback";
+      rendered = false;
+      notes.push(
+        `Obnovené z archive.org (timestamp ${snap.timestamp}).`,
+      );
+    }
+  } else {
+    throw new Error("Zadaj URL alebo vlož HTML.");
+  }
+
+  const base = finalUrl || sourceUrl || "https://blueprint.local/";
+  const primary = await parseHtmlDocument(
+    primaryHtml,
+    base,
+    headers,
+    statusCode,
+    contentType,
+  );
+
+  // Crawl same-origin pages
+  const pages: BlueprintPage[] = [];
+  const allLinks = [...primary.links];
+  const allForms = [...primary.forms];
+  const allAssets = [...primary.assets];
+  const allScripts = [...primary.scripts];
+  const allStyles = [...primary.stylesheets];
+  let allCss = [...primary.cssBundles];
+  let mergedDesign = primary.design;
+
+  if (maxPages > 1 && source !== "html") {
+    const origin = new URL(base).origin;
+    const queue: string[] = [];
+    const seen = new Set<string>([normalizePageUrl(base)]);
+    for (const l of primary.links) {
+      if (!l.internal) continue;
+      try {
+        if (new URL(l.href).origin !== origin) continue;
+      } catch {
+        continue;
+      }
+      const n = normalizePageUrl(l.href);
+      if (!seen.has(n)) {
+        seen.add(n);
+        queue.push(n);
+      }
+    }
+
+    while (queue.length && pages.length < maxPages - 1) {
+      const nextUrl = queue.shift()!;
+      try {
+        assertPublicUrl(nextUrl);
+        const pageFetch = await fetchPageHtml(nextUrl, false);
+        if (pageFetch.status != null && pageFetch.status >= 400) continue;
+        const parsed = await parseHtmlDocument(
+          pageFetch.html,
+          pageFetch.finalUrl || nextUrl,
+          pageFetch.headers,
+          pageFetch.status,
+          pageFetch.contentType,
+        );
+        pages.push({
+          url: pageFetch.finalUrl || nextUrl,
+          title: parsed.meta.title,
+          contentHash: parsed.contentHash,
+          statusCode: parsed.statusCode,
+          htmlBytes: Buffer.byteLength(parsed.html, "utf8"),
+          headings: parsed.headings.slice(0, 20),
+          internalLinkCount: parsed.links.filter((x) => x.internal).length,
+          formCount: parsed.forms.length,
+        });
+        for (const l of parsed.links) {
+          allLinks.push(l);
+          if (l.internal) {
+            try {
+              if (new URL(l.href).origin === origin) {
+                const n = normalizePageUrl(l.href);
+                if (!seen.has(n) && seen.size < maxPages * 3) {
+                  seen.add(n);
+                  queue.push(n);
+                }
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        allForms.push(...parsed.forms);
+        allAssets.push(...parsed.assets);
+        allScripts.push(...parsed.scripts);
+        allStyles.push(...parsed.stylesheets);
+        allCss = allCss.concat(parsed.cssBundles);
+        // merge design colors/fonts
+        mergedDesign = {
+          colors: [...new Set([...mergedDesign.colors, ...parsed.design.colors])].slice(0, 48),
+          fonts: [...new Set([...mergedDesign.fonts, ...parsed.design.fonts])].slice(0, 24),
+          cssVariables: { ...parsed.design.cssVariables, ...mergedDesign.cssVariables },
+          borderRadii: [...new Set([...mergedDesign.borderRadii, ...parsed.design.borderRadii])].slice(0, 20),
+          shadows: [...new Set([...mergedDesign.shadows, ...parsed.design.shadows])].slice(0, 16),
+          spacingHints: [...new Set([...mergedDesign.spacingHints, ...parsed.design.spacingHints])].slice(0, 24),
+        };
+      } catch {
+        /* skip page */
+      }
+    }
+    if (pages.length) {
+      notes.push(`Crawl: ${pages.length + 1} same-origin stránok (limit ${maxPages}).`);
+    }
+  }
+
+  // dedupe links/assets
+  const linkSeen = new Set<string>();
+  const links: BlueprintLink[] = [];
+  for (const l of allLinks) {
+    if (linkSeen.has(l.href)) continue;
+    linkSeen.add(l.href);
+    links.push(l);
+    if (links.length >= 200) break;
+  }
+  const assetSeen = new Set<string>();
+  let assets: BlueprintAsset[] = [];
+  for (const a of allAssets) {
+    if (assetSeen.has(a.url)) continue;
+    assetSeen.add(a.url);
+    assets.push(a);
+    if (assets.length >= 250) break;
+  }
+
+  if (wantAssets) {
+    assets = await captureAssets(assets);
+    const captured = assets.filter((a) => a.captured).length;
+    if (captured) notes.push(`Stiahnutých assetov do blueprintu: ${captured}.`);
+  }
+
+  const tech = detectTech({
+    html: primary.html,
+    css: allCss.map((b) => b.css).join("\n"),
+    headers: primary.headers,
+    scripts: [...new Set(allScripts)],
+  });
+
+  const idLabel =
+    (sourceUrl &&
+      (() => {
+        try {
+          return new URL(sourceUrl).hostname.replace(/\./g, "_");
+        } catch {
+          return "html";
+        }
+      })()) ||
+    "html";
+
+  const internalLinkCount = links.filter((l) => l.internal).length;
+  const externalLinkCount = links.length - internalLinkCount;
+  const uniqueCss = (() => {
+    const seen = new Set<string>();
+    const out: Array<{ url: string; css: string }> = [];
+    for (const b of allCss) {
+      const key = b.url.startsWith("inline:")
+        ? `inline:${createHash("sha256").update(b.css).digest("hex").slice(0, 12)}`
+        : b.url;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ url: b.url, css: b.css.slice(0, MAX_CSS_BYTES) });
+      if (out.length >= 24) break;
+    }
+    return out;
+  })();
+
+  const blueprint: Blueprint = {
+    id: makeId(idLabel),
+    version: "1.1.0",
+    createdAt: new Date().toISOString(),
+    source,
+    sourceUrl,
+    finalUrl,
+    statusCode: primary.statusCode,
+    contentHash: primary.contentHash,
+    contentType: primary.contentType,
+    headers: pickSafeHeaders(primary.headers),
+    meta: primary.meta,
+    tech,
+    design: mergedDesign,
+    assets,
+    links,
+    forms: allForms.slice(0, 40),
+    scripts: [...new Set(allScripts)].slice(0, 100),
+    stylesheets: [...new Set(allStyles)].slice(0, 50),
+    outline: primary.outline,
+    headings: primary.headings,
+    html: primary.rewritten.slice(0, MAX_HTML_BYTES),
+    cssBundles: uniqueCss,
+    pages,
+    options: {
+      maxPages,
+      render: wantRender && source === "url",
+      wayback: wantWayback,
+      captureAssets: wantAssets,
+    },
+    waybackUrl,
+    rendered,
+    stats: {
+      htmlBytes: Buffer.byteLength(primary.html, "utf8"),
+      assetCount: assets.length,
+      capturedAssetCount: assets.filter((a) => a.captured).length,
+      pageCount: pages.length + 1,
+      internalLinkCount,
+      externalLinkCount,
+      formCount: allForms.length,
+      scriptCount: new Set(allScripts).size,
+      stylesheetCount: new Set(allStyles).size,
+      scanMs: Date.now() - started,
+    },
+    notes,
+    limitations,
+  };
+
+  return blueprint;
+}

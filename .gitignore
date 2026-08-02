@@ -1,0 +1,17 @@
+node_modules/
+.tanstack/
+.vercel/
+dist/
+.output/
+.nitro/
+.wrangler/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.node_modules.lock
+.project_id
+attachments/
+screenshots/*.png
+!screenshots/.gitkeep

@@ -1,0 +1,420 @@
+{
+  "id": "REVERSPEC_code_h4ck3d_me_20260802_0318",
+  "version": "2.0.0",
+  "sourceUrl": "https://code.h4ck3d.me/",
+  "basedOnBlueprint": "BLUEPRINT_code_h4ck3d_me_20260802010417_TFZ7",
+  "product": {
+    "name": "TYTHON X - code",
+    "oneLiner": "Mistral AI coding platform powered by Vercel Sandbox",
+    "category": "AI coding agent / multi-agent cloud IDE shell",
+    "primaryUserGoal": "Prihlásiť sa, zadať prompt a spustiť AI coding agenta na repositári v izolovanom Vercel Sandboxe.",
+    "originHints": [
+      "https://github.com/vercel-labs/coding-agent-template",
+      "https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel-labs%2Fcoding-agent-template",
+      "Fork / rebrand of Vercel Labs coding-agent-template (Mistral-focused labels)"
+    ],
+    "authGate": {
+      "publicWithoutAuth": [
+        "TopBar (brand, GitHub stars, Deploy, Sign in)",
+        "Hero title + tagline",
+        "PromptComposer (textarea + provider/model selects + toolbar)",
+        "Sidebar shell with Tasks/Repos tabs (list gated)",
+        "Mobile bottom nav",
+        "Marketing/feature routes: /analytics, /offline-sync, /mobile, /privacy"
+      ],
+      "gatedBehindSignIn": [
+        "Task list content (empty card: 'Sign in to view and create tasks')",
+        "Repos list content",
+        "Delete tasks action",
+        "Actual agent run / sandbox execution / task progress",
+        "OAuth session (GitHub or Vercel per template)"
+      ]
+    }
+  },
+  "routes": [
+    {
+      "path": "/",
+      "purpose": "shell",
+      "priority": "core",
+      "dominantUI": "App shell: collapsible sidebar (Tasks/Repos) + center PromptComposer hero; Sign-in gates task data.",
+      "keyHeadings": ["TYTHON X - code", "Mistral AI coding platform powered by Vercel Sandbox"]
+    },
+    {
+      "path": "/analytics",
+      "purpose": "feature",
+      "priority": "secondary",
+      "dominantUI": "Dashboard s grid layout builderom, throughput/latency/candlestick/3D volume widgetmi, export CSV/JSON.",
+      "keyHeadings": [
+        "Advanced Analytics & AI Insights",
+        "Interactive Grid Layout Builder",
+        "Real-Time Request Throughput",
+        "Latency Heatmap Distribution",
+        "5-Min Aggregated Candlesticks (OHLC)",
+        "System vs Business Category Breakdown",
+        "3D Volume & Load Visualization"
+      ]
+    },
+    {
+      "path": "/offline-sync",
+      "purpose": "feature",
+      "priority": "secondary",
+      "dominantUI": "Offline-first demo: network state, CRDT/LWW, IndexedDB, sync queue, multi-device todo/form/collab use-cases.",
+      "keyHeadings": [
+        "Offline-First Data Sync Architecture",
+        "Offline-First Interactive Use Cases",
+        "Network State: OFFLINE (CACHE MODE)"
+      ]
+    },
+    {
+      "path": "/mobile",
+      "purpose": "feature",
+      "priority": "secondary",
+      "dominantUI": "Mobile/PWA + App Store suite: ASO metadata, icons 192/512, screenshots, compliance links.",
+      "keyHeadings": [
+        "Mobile Optimization & App Store Suite",
+        "App Name & Keywords",
+        "Native Screenshots & Icons",
+        "Required App Store Compliance Links:"
+      ]
+    },
+    {
+      "path": "/privacy",
+      "purpose": "legal",
+      "priority": "noise",
+      "dominantUI": "Privacy Policy sekcie (collection, IndexedDB offline, telemetry, deletion).",
+      "keyHeadings": [
+        "Privacy Policy",
+        "1. Information Collection & Usage",
+        "2. Offline-First Local Storage & IndexedDB",
+        "3. Telemetry & Analytics",
+        "4. Contact & Data Deletion Requests"
+      ]
+    }
+  ],
+  "components": [
+    {
+      "id": "top-bar",
+      "role": "TopBar",
+      "region": "header",
+      "visibleWithoutAuth": true,
+      "structure": ["sidebarToggle", "brandArea", "githubStarsLink", "deployYourOwnLink", "signInButton"],
+      "fields": [],
+      "actions": ["toggleSidebar", "openGitHub", "deployClone", "signIn"],
+      "states": ["default"],
+      "copy": ["Deploy Your Own", "Sign in", "1.8k", "aria-label: Toggle sidebar", "aria-label: GitHub Repository Stars"],
+      "evidence": "Top header with GitHub stars link to vercel-labs/coding-agent-template and Vercel Deploy button"
+    },
+    {
+      "id": "sidebar",
+      "role": "Sidebar",
+      "region": "sidebar",
+      "visibleWithoutAuth": true,
+      "structure": ["tasksTab", "reposTab", "deleteTasksButton", "newItemButton", "taskCardSkeletonsOrGate"],
+      "fields": [],
+      "actions": ["switchTasksRepos", "deleteTasks", "createNew", "toggleCollapse"],
+      "states": ["open", "collapsed", "loadingPulse", "authGated"],
+      "copy": ["Tasks", "Repos", "Sign in to view and create tasks", "title=Delete Tasks"],
+      "evidence": "Left rail tabs Tasks/Repos; data-slot=card shows sign-in gate; pulse skeleton cards while loading"
+    },
+    {
+      "id": "hero-brand",
+      "role": "Hero",
+      "region": "main",
+      "visibleWithoutAuth": true,
+      "structure": ["productTitle", "tagline", "vercelSandboxLink"],
+      "fields": [],
+      "actions": ["openVercelSandboxDocs"],
+      "states": ["default"],
+      "copy": ["TYTHON X - code", "Mistral AI coding platform powered by Vercel Sandbox"],
+      "evidence": "Centered main hero above composer"
+    },
+    {
+      "id": "prompt-composer",
+      "role": "PromptComposer",
+      "region": "main",
+      "visibleWithoutAuth": true,
+      "structure": ["textarea", "providerSelect", "modelSelect", "skipInstallBadge", "toolbarIcons", "submit"],
+      "fields": [
+        {"name": "prompt", "type": "textarea", "required": true, "placeholder": "Describe what you want the AI agent to do..."},
+        {"name": "provider", "type": "select", "required": false, "default": "mistral"},
+        {"name": "model", "type": "select", "required": false, "default": "mistral-large-latest"}
+      ],
+      "actions": ["submit", "selectProvider", "selectModel", "toggleSkipInstall", "openToolbarMenus"],
+      "states": ["empty", "filled", "submitting", "disabled"],
+      "copy": [
+        "Describe what you want the AI agent to do...",
+        "Skip Install",
+        "Mistral",
+        "Mistral Large (CTO Programátor)"
+      ],
+      "evidence": "form > textarea#prompt[name=prompt][required] + two radix select-triggers (data-slot=select-trigger)"
+    },
+    {
+      "id": "provider-picker",
+      "role": "ModelPicker",
+      "region": "main",
+      "visibleWithoutAuth": true,
+      "structure": ["providerCombobox", "modelCombobox"],
+      "fields": [
+        {"name": "provider", "type": "combobox", "options": ["Mistral"]},
+        {
+          "name": "model",
+          "type": "combobox",
+          "options": [
+            "Mistral Large (CTO Programátor)",
+            "Codestral (Kódovací Model)",
+            "Mixtral 8x22B (Software Architekt)",
+            "Mistral Nemo (DevOps / Engineer)",
+            "Mistral Medium (Systémový Inžinier)",
+            "Mistral Small (Rýchly Pomocník)"
+          ]
+        }
+      ],
+      "actions": ["openProvider", "openModel", "pickOption"],
+      "states": ["closed", "open"],
+      "copy": ["Mistral Large (CTO Programátor)", "Codestral (Kódovací Model)"],
+      "evidence": "role=combobox data-slot=select-trigger; native select values mistral / mistral-large-latest"
+    },
+    {
+      "id": "skip-install-badge",
+      "role": "EmptyState",
+      "region": "main",
+      "visibleWithoutAuth": true,
+      "structure": ["badge", "dismissButton"],
+      "fields": [],
+      "actions": ["dismissSkipInstall"],
+      "states": ["visible", "dismissed"],
+      "copy": ["Skip Install"],
+      "evidence": "data-slot=badge 'Skip Install' with close X in composer footer"
+    },
+    {
+      "id": "auth-cta",
+      "role": "AuthCTA",
+      "region": "header",
+      "visibleWithoutAuth": true,
+      "structure": ["signInButton"],
+      "fields": [],
+      "actions": ["signIn"],
+      "states": ["loggedOut", "loggedIn(unknown)"],
+      "copy": ["Sign in"],
+      "evidence": "TopBar primary Sign in button; sidebar empty state echoes gate"
+    },
+    {
+      "id": "mobile-bottom-nav",
+      "role": "FooterNav",
+      "region": "overlay",
+      "visibleWithoutAuth": true,
+      "structure": ["home", "analytics", "offlineSync", "mobilePwa", "privacy"],
+      "fields": [],
+      "actions": ["navigate"],
+      "states": ["default"],
+      "copy": ["Home", "Analytics", "Offline Sync", "Mobile PWA", "Privacy"],
+      "evidence": "nav[aria-label=Mobile Navigation] fixed bottom"
+    },
+    {
+      "id": "toast-host",
+      "role": "Toast",
+      "region": "overlay",
+      "visibleWithoutAuth": true,
+      "structure": ["sonnerRegion"],
+      "fields": [],
+      "actions": [],
+      "states": ["idle"],
+      "copy": ["aria-label: Notifications alt+T"],
+      "evidence": "section[aria-label='Notifications alt+T'] + toast CSS vars in stylesheet"
+    },
+    {
+      "id": "analytics-dashboard",
+      "role": "ChartPanel",
+      "region": "main",
+      "visibleWithoutAuth": true,
+      "structure": ["gridBuilder", "throughput", "latencyHeatmap", "candlesticks", "categoryBreakdown", "volume3d", "exportControls"],
+      "fields": [],
+      "actions": ["pauseLiveStream", "resetLayout", "exportCsv", "exportJson", "addCustomWidget"],
+      "states": ["live", "paused"],
+      "copy": ["Pause Live Stream", "Reset Layout", "CSV", "JSON", "Add Custom Widget", "5 Active Widgets"],
+      "evidence": "Page /analytics headings + control labels from live crawl"
+    },
+    {
+      "id": "offline-sync-panel",
+      "role": "DataTable",
+      "region": "main",
+      "visibleWithoutAuth": true,
+      "structure": ["networkStateBadge", "syncNow", "refresh", "pendingQueue", "activityLogs", "useCaseCards"],
+      "fields": [],
+      "actions": ["syncNow", "refresh", "simulateRemoteConflict"],
+      "states": ["online", "offlineCacheMode", "disconnected"],
+      "copy": [
+        "Network State: OFFLINE (CACHE MODE)",
+        "DISCONNECTED",
+        "Sync Now",
+        "Pending Offline Actions Queue (0)",
+        "CRDT & LWW Enabled",
+        "IndexedDB Cache Active"
+      ],
+      "evidence": "/offline-sync interactive demo sections"
+    },
+    {
+      "id": "mobile-aso-suite",
+      "role": "Tabs",
+      "region": "main",
+      "visibleWithoutAuth": true,
+      "structure": ["appNameKeywords", "iconsScreenshots", "complianceLinks"],
+      "fields": [
+        {"name": "appName", "type": "text", "valueHint": "CLI Agents - AI Coding Platform"}
+      ],
+      "actions": [],
+      "states": ["default"],
+      "copy": ["Mobile Optimization & App Store Suite", "Required App Store Compliance Links:"],
+      "evidence": "/mobile headings + blueprint meta icons 192/512"
+    }
+  ],
+  "interactions": {
+    "happyPath": [
+      "1. Otvor / → uvidíš shell (sidebar + hero + composer) bez login",
+      "2. Napíš prompt do textarea 'Describe what you want the AI agent to do...'",
+      "3. Zvoľ provider Mistral + model (default Mistral Large)",
+      "4. (Voliteľne) Skip Install badge nechaj/zruš",
+      "5. Klikni submit / Sign in — bez auth sa task reálne nespustí",
+      "6. Po Sign in: task list odomkne, agent beží v Vercel Sandboxe (backend mimo snapshotu)"
+    ],
+    "authGated": [
+      "Zobrazenie a vytváranie Tasks/Repos",
+      "Delete Tasks",
+      "Reálny agent run, logy, branch/commit automatizácia",
+      "OAuth (GitHub/Vercel) session + per-user API keys (template)"
+    ],
+    "navigation": [
+      "Desktop/top: sidebar toggle + brand context",
+      "Mobile bottom nav: / | /analytics | /offline-sync | /mobile | /privacy",
+      "External: GitHub template, Vercel Deploy clone, Vercel Sandbox docs"
+    ],
+    "stateMachine": {
+      "taskList": ["loadingPulse → authGate | taskCards"],
+      "composer": ["empty → filled → (signIn|submit) → submitting"],
+      "theme": ["html.light default; .dark tokens exist in CSS"]
+    }
+  },
+  "design": {
+    "mode": ["light", "dark"],
+    "tokens": {
+      "--background": "#fff / .dark #0a0a0a",
+      "--foreground": "#0a0a0a / .dark #fafafa",
+      "--card": "#fff / .dark #171717",
+      "--card-foreground": "#0a0a0a / .dark #fafafa",
+      "--popover": "#fff / .dark #171717",
+      "--popover-foreground": "#0a0a0a / .dark #fafafa",
+      "--primary": "#171717 / .dark #e5e5e5",
+      "--primary-foreground": "#fafafa / .dark #171717",
+      "--secondary": "#f5f5f5 / .dark #262626",
+      "--secondary-foreground": "#171717 / .dark #fafafa",
+      "--muted": "#f5f5f5 / .dark #262626",
+      "--muted-foreground": "#737373 / .dark #a1a1a1",
+      "--accent": "#f5f5f5 / .dark #262626",
+      "--accent-foreground": "#171717 / .dark #fafafa",
+      "--destructive": "#e40014 / .dark #ff6568",
+      "--border": "#e5e5e5 / .dark #ffffff1a",
+      "--input": "#e5e5e5 / .dark #ffffff26",
+      "--ring": "#a1a1a1 / .dark #737373",
+      "--radius": "0.625rem",
+      "--sidebar": "#fafafa / .dark #171717",
+      "--sidebar-foreground": "#0a0a0a / .dark #fafafa",
+      "--chart-1": "#f05100",
+      "--chart-2": "#009588",
+      "--theme-color-meta": "#0f172a"
+    },
+    "fonts": {
+      "sans": "Geist",
+      "mono": "Geist Mono"
+    },
+    "radius": "0.625rem",
+    "density": "comfortable",
+    "notes": "shadcn/ui semantic tokens + dark class strategy; data-slot=* markers; toast (Sonner) success/error palette; Mistral brand orange in provider icon (#FF7000/#FF5000); rounded-2xl composer card bg-muted/30"
+  },
+  "tech": [
+    {"name": "Next.js", "confidence": "high", "evidence": "__NEXT_DATA__ / _next static chunks / RSC payload"},
+    {"name": "React", "confidence": "high", "evidence": "Next App Router client components, data-slot UI"},
+    {"name": "Tailwind CSS", "confidence": "high", "evidence": "utility classes + @layer theme; utility-class pattern"},
+    {"name": "shadcn/ui", "confidence": "high", "evidence": "data-slot=button|textarea|select-trigger|card|badge; semantic CSS vars"},
+    {"name": "Radix UI", "confidence": "high", "evidence": "role=combobox, aria-controls=radix-*, data-state, accordion height vars"},
+    {"name": "Geist font", "confidence": "high", "evidence": "@font-face Geist + body class geist_* modules"},
+    {"name": "Sonner", "confidence": "high", "evidence": "Notifications alt+T region + toast CSS variables"},
+    {"name": "Vaul", "confidence": "medium", "evidence": "data-vaul-drawer-direction utilities in CSS bundle"},
+    {"name": "PWA", "confidence": "high", "evidence": "manifest link, service worker signals, icons 192/512"},
+    {"name": "Jotai", "confidence": "medium", "evidence": "RSC module ref JotaiProvider in HTML stream"},
+    {"name": "next-auth / AuthProvider", "confidence": "high", "evidence": "SessionProvider + AuthProvider in RSC payload"},
+    {"name": "ThemeProvider", "confidence": "high", "evidence": "ThemeProvider in RSC payload; .dark tokens"},
+    {"name": "Google Analytics", "confidence": "high", "evidence": "GA scripts in blueprint"},
+    {"name": "Vercel Sandbox", "confidence": "high", "evidence": "copy + docs link; deploy env SANDBOX_VERCEL_*"},
+    {"name": "Mistral AI", "confidence": "high", "evidence": "provider default + model list branding"},
+    {"name": "Vercel AI Gateway / AI SDK", "confidence": "medium", "evidence": "upstream template stack; not proven in public DOM beyond branding"}
+  ],
+  "forms": [
+    {
+      "id": "create-task-prompt",
+      "method": "client",
+      "action": "client-side (auth required for real run)",
+      "fields": [
+        {"name": "prompt", "type": "textarea", "required": true, "placeholder": "Describe what you want the AI agent to do..."},
+        {"name": "provider", "type": "select", "value": "mistral", "options": ["Mistral"]},
+        {"name": "model", "type": "select", "value": "mistral-large-latest", "options": [
+          "Mistral Large (CTO Programátor)",
+          "Codestral (Kódovací Model)",
+          "Mixtral 8x22B (Software Architekt)",
+          "Mistral Nemo (DevOps / Engineer)",
+          "Mistral Medium (Systémový Inžinier)",
+          "Mistral Small (Rýchly Pomocník)"
+        ]},
+        {"name": "skipInstall", "type": "toggle/badge", "default": true}
+      ]
+    }
+  ],
+  "assets": [
+    {"url": "https://code.h4ck3d.me/favicon.ico", "type": "icon", "purpose": "favicon"},
+    {"url": "https://code.h4ck3d.me/favicon-16x16.png", "type": "icon", "purpose": "favicon 16"},
+    {"url": "https://code.h4ck3d.me/favicon-32x32.png", "type": "icon", "purpose": "favicon 32"},
+    {"url": "https://code.h4ck3d.me/icon-192.png", "type": "icon", "purpose": "PWA 192"},
+    {"url": "https://code.h4ck3d.me/icon-512.png", "type": "icon", "purpose": "PWA 512"},
+    {"url": "https://code.h4ck3d.me/apple-touch-icon.png", "type": "icon", "purpose": "apple touch"},
+    {"url": "https://code.h4ck3d.me/manifest", "type": "manifest", "purpose": "PWA manifest (href /manifest in HTML)"},
+    {"url": "https://code.h4ck3d.me/_next/static/chunks/3dcf2c8f6342e9f6.css", "type": "stylesheet", "purpose": "main CSS (Geist + Tailwind + tokens)"}
+  ],
+  "apiSurfacePublic": [
+    {
+      "kind": "deploy-clone",
+      "url": "https://vercel.com/new/clone?repository-url=https://github.com/vercel-labs/coding-agent-template",
+      "envHints": ["SANDBOX_VERCEL_TEAM_ID", "SANDBOX_VERCEL_PROJECT_ID", "SANDBOX_VERCEL_TOKEN", "JWE_SECRET", "ENCRYPTION_KEY"],
+      "note": "OAuth provider GitHub/Vercel required after deploy; optional API keys later; postgres store"
+    },
+    {
+      "kind": "external-docs",
+      "url": "https://vercel.com/docs/sandbox"
+    },
+    {
+      "kind": "source-template",
+      "url": "https://github.com/vercel-labs/coding-agent-template"
+    }
+  ],
+  "stats": {
+    "routeCount": 5,
+    "coreComponentCount": 12,
+    "tokenCount": 22,
+    "modelOptionsCount": 6
+  },
+  "gaps": [
+    "Bez auth: nevidno reálne task karty, agent logy, repo list, sandbox session UI",
+    "Submit flow backend (AI Gateway, Neon DB, sandbox API) nie je vo verejnom DOMe",
+    "Provider list aktuálne len Mistral (iní agenti z template môžu byť skrytí/rebrand)",
+    "Toolbar ikony v composer (3 round buttons + badge '1') — tooltips neexpandnuté v scane",
+    "Analytics charts sú client-rendered; detaily datasetov/API neznáme",
+    "Offline sync demo vs production auth data paths — oddelené feature pages, nie core task pipeline",
+    "Jazyk UI mix EN + SK model labels (CTO Programátor…)"
+  ],
+  "limitations": [
+    "Frontend reverse-spec ~80–90 % verejného shellu — nie full-stack clone",
+    "Žiadne secrets, .env hodnoty, private API payloads, WebSocket streams",
+    "SPA post-login stavy len hypoteticky z template dokumentácie",
+    "CSS dump / --tw-* utility internals zámerne vyradené",
+    "Base64 asset bodies nevypisované"
+  ]
+}

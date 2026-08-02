@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="sk">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Ukážková appka pre blueprint testy" />
+    <meta name="robots" content="index,follow" />
+    <meta name="theme-color" content="#0a0a0b" />
+    <meta property="og:title" content="Sample App OG" />
+    <meta property="og:description" content="OG popis" />
+    <meta name="twitter:card" content="summary" />
+    <title>Sample Blueprint App</title>
+    <link rel="canonical" href="https://sample.example/app" />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/assets/app.css" />
+    <link rel="manifest" href="/manifest.json" />
+    <style>
+      :root {
+        --color-bg: #0a0a0b;
+        --color-accent: #c8ccd4;
+        --radius-md: 12px;
+      }
+      body {
+        font-family: "Inter", system-ui, sans-serif;
+        background: #0a0a0b;
+        color: rgba(244, 244, 245, 1);
+        margin: 0;
+        padding: 24px;
+      }
+      .card {
+        border-radius: 16px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        padding: 16px;
+        gap: 12px;
+      }
+      .btn {
+        background: oklch(0.85 0.02 250);
+      }
+    </style>
+    <script src="/assets/react.min.js"></script>
+    <script src="https://www.googletagmanager.com/gtag/js?id=G-TEST123"></script>
+  </head>
+  <body>
+    <header id="top" class="site-header main-nav" role="banner">
+      <h1 class="title">Vitaj v Sample App</h1>
+      <nav aria-label="Hlavné">
+        <a href="/">Domov</a>
+        <a href="/pricing">Cenník</a>
+        <a href="https://external.example/docs">Docs</a>
+      </nav>
+    </header>
+    <main id="content" class="page-main">
+      <h2>Funkcie</h2>
+      <p>Demo obsah pre skener.</p>
+      <img src="/images/hero.png" alt="Hero" />
+      <img srcset="/images/hero-2x.png 2x, /images/hero.png 1x" alt="Hero srcset" />
+      <form action="/api/login" method="post">
+        <input type="email" name="email" required />
+        <input type="password" name="password" />
+        <input type="hidden" name="csrf" value="token" />
+        <button type="submit">Prihlásiť</button>
+      </form>
+      <div data-reactroot class="app-root">
+        <span class="flex md:grid text-sm bg-zinc-900">Tailwind-ish</span>
+      </div>
+    </main>
+    <footer class="site-footer">
+      <h3>Pätička</h3>
+      <a href="/privacy">Súkromie</a>
+    </footer>
+    <script>
+      window.__NEXT_DATA__ = { page: "/" };
+    </script>
+  </body>
+</html>
