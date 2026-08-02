@@ -62,11 +62,11 @@ function httpErrorHarvest(url: string, status: number): PageHarvest {
   };
 }
 
+const noRetry = { maxAttemptsPerUrl: 1 as const, baseDelayMs: 1, maxDelayMs: 2 };
+
 describe("partial crawl recovery · harvestCrawlPages", () => {
   it("a) 5-page crawl where page 3 returns 500 → 4 success + 1 failed warning", async () => {
     const base = "https://shop.example/";
-    // primary is outside; we harvest 5 additional candidates, maxAdditional=5
-    // page index 3 (1-based among queue) fails with 500
     const urls = [
       "https://shop.example/p1",
       "https://shop.example/p2",
@@ -85,6 +85,7 @@ describe("partial crawl recovery · harvestCrawlPages", () => {
       maxAdditionalPages: 5,
       primaryInternalLinks: urls,
       harvestOne,
+      ...noRetry,
     });
 
     expect(result.scannedPages).toHaveLength(4);
@@ -118,16 +119,13 @@ describe("partial crawl recovery · harvestCrawlPages", () => {
       return okHarvest(url, url.split("/").pop()!);
     });
 
-    const progress: number[] = [];
     await expect(
       harvestCrawlPages({
         baseUrl: base,
         maxAdditionalPages: 3,
         primaryInternalLinks: urls,
         harvestOne,
-        onProgress: ({ scannedPages, failedUrls }) => {
-          progress.push(scannedPages.length + failedUrls.length);
-        },
+        ...noRetry,
       }),
     ).resolves.toMatchObject({
       scanStatus: "partial",
@@ -139,16 +137,16 @@ describe("partial crawl recovery · harvestCrawlPages", () => {
       maxAdditionalPages: 3,
       primaryInternalLinks: urls,
       harvestOne,
+      ...noRetry,
     });
 
-    expect(result.scannedPages.length).toBe(2); // a + c
+    expect(result.scannedPages.length).toBe(2);
     expect(result.failedUrls.length).toBe(1);
     expect(result.failedUrls[0].url).toContain("/b");
     expect(result.failedUrls[0].error).toMatch(/timeout|abort/i);
     expect(result.scanStatus).toBe("partial");
     expect(result.partialStats?.succeeded).toBe(2);
     expect(result.partialStats?.failed).toBe(1);
-    // must not throw
   });
 
   it("records DNS / throw failures and continues queue", async () => {
@@ -165,6 +163,7 @@ describe("partial crawl recovery · harvestCrawlPages", () => {
         "https://ok.example/2",
       ],
       harvestOne,
+      ...noRetry,
     });
     expect(result.scannedPages.length).toBe(2);
     expect(result.failedUrls.some((f) => f.error.includes("ENOTFOUND"))).toBe(
@@ -193,6 +192,7 @@ describe("partial crawl recovery · harvestCrawlPages", () => {
       ],
       signal: ac.signal,
       harvestOne,
+      ...noRetry,
     });
     expect(result.aborted).toBe(true);
     expect(result.scanStatus).toBe("aborted");
@@ -214,6 +214,7 @@ describe("partial crawl recovery · harvestCrawlPages", () => {
       onProgress: ({ scannedPages }) => {
         snapshots.push(scannedPages.length);
       },
+      ...noRetry,
     });
     expect(snapshots).toEqual([1, 2, 3]);
   });
@@ -227,6 +228,7 @@ describe("partial crawl recovery · harvestCrawlPages", () => {
         "https://full.example/b",
       ],
       harvestOne: async (url) => okHarvest(url, "ok"),
+      ...noRetry,
     });
     expect(result.scanStatus).toBe("complete");
     expect(result.failedUrls).toHaveLength(0);

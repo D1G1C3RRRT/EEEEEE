@@ -25,6 +25,7 @@ import {
   harvestCrawlPages,
   type PageHarvest,
 } from "./crawl-pages";
+import { isTransientError, isTransientHttpStatus, withRetry } from "./retry";
 import { compileElementorFromBlueprint } from "./elementor-compiler";
 import type { ElementorTemplate } from "./elementor-compiler";
 import { extractWordPressArchitecture } from "./wordpress-jetengine";
@@ -84,9 +85,9 @@ export function assertPublicUrl(raw: string): URL {
   return url;
 }
 
-async function fetchText(
+async function fetchTextOnce(
   url: string,
-  opts?: { maxBytes?: number },
+  opts?: { maxBytes?: number; signal?: AbortSignal },
 ): Promise<{
   text: string;
   finalUrl: string;
@@ -96,6 +97,8 @@ async function fetchText(
 }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const onOuterAbort = () => controller.abort();
+  opts?.signal?.addEventListener("abort", onOuterAbort, { once: true });
   try {
     const res = await fetch(url, {
       redirect: "follow",
@@ -115,6 +118,14 @@ async function fetchText(
     const buf = new Uint8Array(await res.arrayBuffer());
     const sliced = buf.byteLength > max ? buf.slice(0, max) : buf;
     const text = new TextDecoder("utf-8", { fatal: false }).decode(sliced);
+
+    // Transient HTTP → throw so withRetry can re-attempt
+    if (isTransientHttpStatus(res.status)) {
+      const err = new Error(`HTTP ${res.status}`);
+      (err as Error & { statusCode?: number }).statusCode = res.status;
+      throw err;
+    }
+
     return {
       text,
       finalUrl: res.url || url,
@@ -122,8 +133,68 @@ async function fetchText(
       headers,
       contentType,
     };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      const e = new Error("Request timeout");
+      e.name = "AbortError";
+      throw e;
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
+    opts?.signal?.removeEventListener("abort", onOuterAbort);
+  }
+}
+
+/** Fetch with retries on transient network / 429 / 5xx */
+async function fetchText(
+  url: string,
+  opts?: { maxBytes?: number; signal?: AbortSignal; maxAttempts?: number },
+): Promise<{
+  text: string;
+  finalUrl: string;
+  status: number;
+  headers: Record<string, string>;
+  contentType: string | null;
+}> {
+  try {
+    return await withRetry(
+      (attempt) => fetchTextOnce(url, opts),
+      {
+        maxAttempts: opts?.maxAttempts ?? 3,
+        baseDelayMs: 250,
+        maxDelayMs: 2_000,
+        signal: opts?.signal,
+        shouldRetry: (err) => {
+          if (opts?.signal?.aborted) return false;
+          if (
+            err instanceof Error &&
+            (err as Error & { statusCode?: number }).statusCode != null
+          ) {
+            return isTransientHttpStatus(
+              (err as Error & { statusCode?: number }).statusCode,
+            );
+          }
+          return isTransientError(err);
+        },
+      },
+    );
+  } catch (err) {
+    // After retries exhausted on HTTP transient — return last status as response-like
+    // so callers can record partial; rethrow network errors
+    if (
+      err instanceof Error &&
+      (err as Error & { statusCode?: number }).statusCode != null
+    ) {
+      return {
+        text: "",
+        finalUrl: url,
+        status: (err as Error & { statusCode: number }).statusCode,
+        headers: {},
+        contentType: null,
+      };
+    }
+    throw err;
   }
 }
 

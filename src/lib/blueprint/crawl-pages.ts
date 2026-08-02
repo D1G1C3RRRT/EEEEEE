@@ -9,6 +9,11 @@ import type {
   ScanStatus,
   ScanWarnings,
 } from "./types";
+import {
+  isTransientError,
+  shouldRetryHttpStatus,
+  withRetry,
+} from "./retry";
 
 export interface PageHarvest {
   page: BlueprintPage;
@@ -118,6 +123,92 @@ export function mergeDesignTokens(
  * Each URL is isolated: failures are recorded and crawl continues.
  * AbortSignal stops further fetches and marks status aborted/partial.
  */
+
+/**
+ * Run harvestOne with retries for transient HTTP statuses and network errors.
+ * Permanent failures (404/401/403) fail immediately.
+ */
+export async function harvestOneWithRetry(
+  url: string,
+  harvestOne: (url: string) => Promise<PageHarvest | null>,
+  opts?: {
+    maxAttempts?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+    signal?: AbortSignal;
+    onRetry?: (info: {
+      url: string;
+      attempt: number;
+      nextAttempt: number;
+      reason: string;
+      delayMs: number;
+    }) => void;
+  },
+): Promise<{ harvested: PageHarvest | null; attempts: number }> {
+  const maxAttempts = Math.max(1, opts?.maxAttempts ?? 3);
+  let attempts = 0;
+
+  const result = await withRetry(
+    async (attempt) => {
+      attempts = attempt;
+      if (opts?.signal?.aborted) {
+        const e = new Error("Aborted");
+        e.name = "AbortError";
+        throw e;
+      }
+      const harvested = await harvestOne(url);
+
+      if (!harvested) {
+        // empty body — treat as transient once or twice
+        const err = new Error("Empty harvest result");
+        (err as Error & { code?: string }).code = "EMPTY_HARVEST";
+        throw err;
+      }
+
+      const status = harvested.page.statusCode;
+      if (status != null && status >= 400) {
+        if (shouldRetryHttpStatus(status) && attempt < maxAttempts) {
+          const err = new Error(`HTTP ${status}`);
+          (err as Error & { statusCode?: number }).statusCode = status;
+          throw err; // triggers retry
+        }
+        // permanent HTTP error — return as-is (caller records failure, no throw)
+        return harvested;
+      }
+      return harvested;
+    },
+    {
+      maxAttempts,
+      baseDelayMs: opts?.baseDelayMs ?? 200,
+      maxDelayMs: opts?.maxDelayMs ?? 2_500,
+      signal: opts?.signal,
+      shouldRetry: (err, attempt) => {
+        if (opts?.signal?.aborted) return false;
+        if (err instanceof Error && (err as Error & { statusCode?: number }).statusCode != null) {
+          return shouldRetryHttpStatus((err as Error & { statusCode?: number }).statusCode);
+        }
+        if (err instanceof Error && (err as Error & { code?: string }).code === "EMPTY_HARVEST") {
+          return attempt < maxAttempts;
+        }
+        return isTransientError(err);
+      },
+      onRetry: ({ attempt, nextAttempt, error, delayMs }) => {
+        const reason =
+          error instanceof Error ? error.message : String(error);
+        opts?.onRetry?.({
+          url,
+          attempt,
+          nextAttempt,
+          reason,
+          delayMs,
+        });
+      },
+    },
+  );
+
+  return { harvested: result, attempts };
+}
+
 export async function harvestCrawlPages(opts: {
   baseUrl: string;
   /** max *additional* pages (primary is outside); typically maxPages - 1 */
@@ -137,6 +228,17 @@ export async function harvestCrawlPages(opts: {
     failedUrls: FailedUrlRecord[];
     totalAttempted: number;
   }) => void | Promise<void>;
+  /** Total harvest attempts per URL (default 3). Set 1 to disable retries. */
+  maxAttemptsPerUrl?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  onRetry?: (info: {
+    url: string;
+    attempt: number;
+    nextAttempt: number;
+    reason: string;
+    delayMs: number;
+  }) => void;
 }): Promise<CrawlHarvestResult> {
   const origin = new URL(opts.baseUrl).origin;
   const queue: string[] = [];
@@ -193,13 +295,23 @@ export async function harvestCrawlPages(opts: {
         break;
       }
 
-      const harvested = await opts.harvestOne(nextUrl);
+      const { harvested, attempts } = await harvestOneWithRetry(
+        nextUrl,
+        opts.harvestOne,
+        {
+          maxAttempts: opts.maxAttemptsPerUrl ?? 3,
+          baseDelayMs: opts.baseDelayMs ?? 200,
+          maxDelayMs: opts.maxDelayMs ?? 2_500,
+          signal: opts.signal,
+          onRetry: opts.onRetry,
+        },
+      );
 
       if (!harvested) {
         failedUrls.push({
           url: nextUrl,
           statusCode: null,
-          error: "Page harvest returned empty (HTTP error or empty body)",
+          error: `Page harvest returned empty after ${attempts} attempt(s)`,
           at: new Date().toISOString(),
         });
         await report();
@@ -214,7 +326,10 @@ export async function harvestCrawlPages(opts: {
         failedUrls.push({
           url: harvested.page.url || nextUrl,
           statusCode: harvested.page.statusCode,
-          error: `HTTP ${harvested.page.statusCode}`,
+          error:
+            attempts > 1
+              ? `HTTP ${harvested.page.statusCode} after ${attempts} attempts`
+              : `HTTP ${harvested.page.statusCode}`,
           at: new Date().toISOString(),
         });
         await report();
