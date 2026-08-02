@@ -116,8 +116,8 @@
 
   /* ── Premium neon border (main input) ──
      Snake = short bright arc on a FIXED rounded-rect mask.
-     We animate --neon-angle (conic from), NOT transform:rotate
-     (rotate spins the whole wide box and kills the snake effect).
+     Animate --neon-angle (not transform:rotate).
+     Base speed: 2.04s (~15% faster than 2.4s).
   */
   .neon-border-wrapper {
     position: relative;
@@ -149,14 +149,13 @@
       linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
-    animation: neon-spin 2.4s linear infinite;
+    animation: neon-spin 2.04s linear infinite;
     pointer-events: none;
     z-index: 0;
     opacity: 1;
     will-change: --neon-angle;
   }
 
-  /* Soft outer ambient glow that follows accent */
   .neon-border-wrapper::after {
     content: "";
     position: absolute;
@@ -172,7 +171,7 @@
     z-index: -1;
     filter: blur(16px);
     opacity: 0.75;
-    animation: neon-glow-pulse 2.4s ease-in-out infinite;
+    animation: neon-glow-pulse 2.04s ease-in-out infinite;
   }
 
   .neon-border-wrapper > .neon-inner {
@@ -183,10 +182,9 @@
     border: 1px solid color-mix(in oklab, var(--color-border) 80%, #c8a16e 20%);
   }
 
-  /* Focus boost — brighter + faster snake */
   .neon-border-wrapper:focus-within::before {
     opacity: 1;
-    animation-duration: 1.6s;
+    animation-duration: 1.36s;
     padding: 2.5px;
     background: conic-gradient(
       from var(--neon-angle),
@@ -210,7 +208,6 @@
     box-shadow: 0 0 12px color-mix(in oklab, var(--color-accent) 35%, transparent);
   }
 
-  /* Long-press option toggles */
   .toggle-btn {
     position: relative;
     touch-action: manipulation;
@@ -247,7 +244,7 @@
       linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
-    animation: toggle-neon-spin 2.8s linear infinite;
+    animation: toggle-neon-spin 2.38s linear infinite;
     pointer-events: none;
     z-index: 0;
   }
@@ -317,7 +314,6 @@
     }
   }
 
-  /* Angle-only spin = snake crawls along the fixed ring */
   @keyframes neon-spin {
     to {
       --neon-angle: 360deg;
@@ -349,7 +345,6 @@
     }
   }
 
-  /* Only when user explicitly wants less motion — do NOT kill neon for everyone */
   @media (prefers-reduced-motion: reduce) {
     .shimmer,
     .toggle-hold-progress {
@@ -357,7 +352,7 @@
     }
 
     .neon-border-wrapper::before {
-      animation: neon-spin 6s linear infinite;
+      animation: neon-spin 5.1s linear infinite;
       opacity: 0.85;
     }
 
@@ -367,7 +362,7 @@
     }
 
     .toggle-neon-ring::before {
-      animation: toggle-neon-spin 6s linear infinite;
+      animation: toggle-neon-spin 5.1s linear infinite;
       opacity: 0.85;
     }
   }
