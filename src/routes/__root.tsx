@@ -2,6 +2,12 @@ import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-r
 import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
 
+const SITE_TITLE = "Blueprint — URL → 1:1 frontend blueprint";
+const SITE_DESCRIPTION =
+  "Skenuj ľubovoľnú verejnú URL alebo vlož HTML a vytvor štruktúrovaný 1:1 frontend blueprint s exportom JSON/ZIP. WordPress, JetEngine, Elementor reverse-spec.";
+/** Absolute-path social image (resolves against deploy origin). */
+const OG_IMAGE = "/android-chrome-512x512.png";
+
 export const Route = createRootRoute({
   head: () => ({
     meta: [
@@ -10,16 +16,66 @@ export const Route = createRootRoute({
         name: "viewport",
         content: "width=device-width, initial-scale=1, viewport-fit=cover",
       },
+      { title: SITE_TITLE },
+      { name: "description", content: SITE_DESCRIPTION },
+      { name: "theme-color", content: "#0a0a0b" },
+      { name: "application-name", content: "Blueprint" },
+      { name: "author", content: "Blueprint Scanner" },
       {
-        title: "Blueprint — URL → 1:1 frontend blueprint",
-      },
-      {
-        name: "description",
+        name: "keywords",
         content:
-          "Skenuj ľubovoľnú verejnú URL alebo vlož HTML a vytvor štruktúrovaný 1:1 frontend blueprint s exportom JSON/ZIP.",
+          "blueprint, frontend snapshot, reverse engineering, WordPress, JetEngine, Elementor, PWA, crawl",
+      },
+      { name: "robots", content: "index, follow" },
+
+      // Open Graph
+      { property: "og:type", content: "website" },
+      { property: "og:site_name", content: "Blueprint" },
+      { property: "og:locale", content: "sk_SK" },
+      { property: "og:locale:alternate", content: "en_US" },
+      { property: "og:title", content: SITE_TITLE },
+      { property: "og:description", content: SITE_DESCRIPTION },
+      { property: "og:image", content: OG_IMAGE },
+      { property: "og:image:type", content: "image/png" },
+      { property: "og:image:width", content: "512" },
+      { property: "og:image:height", content: "512" },
+      {
+        property: "og:image:alt",
+        content: "Blueprint Scanner — frontend reverse-spec tool",
+      },
+
+      // Twitter / X Card
+      { name: "twitter:card", content: "summary" },
+      { name: "twitter:title", content: SITE_TITLE },
+      { name: "twitter:description", content: SITE_DESCRIPTION },
+      { name: "twitter:image", content: OG_IMAGE },
+      {
+        name: "twitter:image:alt",
+        content: "Blueprint Scanner — frontend reverse-spec tool",
       },
     ],
-    links: [{ rel: "stylesheet", href: appCss }],
+    links: [
+      { rel: "stylesheet", href: appCss },
+      {
+        rel: "apple-touch-icon",
+        sizes: "180x180",
+        href: "/apple-touch-icon.png",
+      },
+      {
+        rel: "icon",
+        type: "image/png",
+        sizes: "32x32",
+        href: "/favicon-32x32.png",
+      },
+      {
+        rel: "icon",
+        type: "image/png",
+        sizes: "16x16",
+        href: "/favicon-16x16.png",
+      },
+      { rel: "icon", href: "/favicon.ico", sizes: "any" },
+      { rel: "manifest", href: "/site.webmanifest" },
+    ],
   }),
   component: RootDocument,
 });
