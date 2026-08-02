@@ -62,7 +62,7 @@ describe("absolutize Open Graph / Twitter URLs", () => {
       <meta property="og:url" content="/home" />
       <meta name="twitter:image" content="/tw.png" />
     </head><body><h1>Shop</h1><p>Content here with enough text for a real page body.</p></body></html>`;
-    const bp = await scanToBlueprint({
+    const { blueprint: bp } = await scanToBlueprint({
       html,
       baseUrl: "https://shop.example/",
       captureAssets: false,

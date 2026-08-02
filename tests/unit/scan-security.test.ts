@@ -49,7 +49,7 @@ describe("scanToBlueprint · security / SSRF", () => {
   });
 
   it("allows HTML paste even without public base URL", async () => {
-    const bp = await scanToBlueprint({
+    const { blueprint: bp } = await scanToBlueprint({
       html: "<html><head><title>Offline</title></head><body><h1>x</h1></body></html>",
     });
     expect(bp.source).toBe("html");

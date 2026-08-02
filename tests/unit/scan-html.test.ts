@@ -19,7 +19,7 @@ const baseOpts = {
 
 describe("scanToBlueprint · HTML mode", () => {
   it("builds a complete blueprint from pasted HTML", async () => {
-    const bp = await scanToBlueprint({ ...baseOpts });
+    const { blueprint: bp } = await scanToBlueprint({ ...baseOpts });
 
     expect(bp.version).toBe("1.2.0");
     expect(bp.source).toBe("html");
@@ -36,7 +36,7 @@ describe("scanToBlueprint · HTML mode", () => {
   });
 
   it("extracts headings, links and forms", async () => {
-    const bp = await scanToBlueprint({ ...baseOpts });
+    const { blueprint: bp } = await scanToBlueprint({ ...baseOpts });
 
     expect(bp.headings.some((h) => h.level === 1 && /Vitaj/.test(h.text))).toBe(
       true,
@@ -54,7 +54,7 @@ describe("scanToBlueprint · HTML mode", () => {
   });
 
   it("extracts assets and design tokens", async () => {
-    const bp = await scanToBlueprint({ ...baseOpts });
+    const { blueprint: bp } = await scanToBlueprint({ ...baseOpts });
 
     expect(bp.assets.some((a) => a.type === "image")).toBe(true);
     expect(bp.assets.some((a) => a.type === "script")).toBe(true);
@@ -65,7 +65,7 @@ describe("scanToBlueprint · HTML mode", () => {
   });
 
   it("detects tech signals from fixture HTML", async () => {
-    const bp = await scanToBlueprint({ ...baseOpts });
+    const { blueprint: bp } = await scanToBlueprint({ ...baseOpts });
     const names = bp.tech.map((t) => t.name);
     expect(names).toContain("React");
     expect(names).toContain("Next.js");
@@ -74,7 +74,7 @@ describe("scanToBlueprint · HTML mode", () => {
   });
 
   it("builds DOM outline and stats", async () => {
-    const bp = await scanToBlueprint({ ...baseOpts });
+    const { blueprint: bp } = await scanToBlueprint({ ...baseOpts });
     expect(bp.outline.length).toBeGreaterThan(0);
     expect(bp.stats.htmlBytes).toBeGreaterThan(100);
     expect(bp.stats.formCount).toBe(1);
@@ -85,7 +85,7 @@ describe("scanToBlueprint · HTML mode", () => {
   });
 
   it("rewrites relative asset URLs to absolute", async () => {
-    const bp = await scanToBlueprint({ ...baseOpts });
+    const { blueprint: bp } = await scanToBlueprint({ ...baseOpts });
     expect(bp.html).toContain("https://sample.example/images/hero.png");
     expect(bp.scripts.some((s) => s.startsWith("https://sample.example/"))).toBe(
       true,

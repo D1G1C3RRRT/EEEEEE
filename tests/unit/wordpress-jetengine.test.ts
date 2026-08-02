@@ -93,7 +93,7 @@ describe("WP / JetEngine DOM extract", () => {
   });
 
   it("scanToBlueprint fills dynamicFields + catalog", async () => {
-    const bp = await scanToBlueprint({
+    const { blueprint: bp } = await scanToBlueprint({
       html: fixture,
       baseUrl: base,
       captureAssets: false,

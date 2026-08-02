@@ -742,7 +742,7 @@ async function fetchPageHtml(
   };
 }
 
-export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
+export async function scanToBlueprint(input: ScanRequest): Promise<{ blueprint: Blueprint; pagesHtml: Map<string, string> }> {
   const started = Date.now();
   const maxPages = Math.min(
     MAX_CRAWL_PAGES,
@@ -925,6 +925,7 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
   let scanStatus: ScanStatus = "complete";
   let partialStats: PartialStats | null = null;
   let scanWarnings: ScanWarnings | null = null;
+  let pagesHtml = new Map<string, string>();
 
   if (maxPages > 1 && source !== "html") {
     const seedUrls: string[] = [];
@@ -998,6 +999,7 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
         stylesheets: parsed.stylesheets,
         cssBundles: parsed.cssBundles,
         design: parsed.design,
+        html: pageFetch.html,
       };
     };
 
@@ -1030,6 +1032,7 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
       scanStatus = crawl.scanStatus;
       partialStats = crawl.partialStats;
       scanWarnings = crawl.scanWarnings;
+      pagesHtml = crawl.pagesHtml;
 
       if (crawl.failedUrls.length || crawl.aborted) {
         notes.push(
@@ -1282,6 +1285,6 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
   blueprint.notes = notes;
   blueprint.stats.scanMs = Date.now() - started;
 
-  return blueprint;
+  return { blueprint, pagesHtml };
 }
 

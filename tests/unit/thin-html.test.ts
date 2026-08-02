@@ -61,7 +61,7 @@ describe("thin HTML / SPA shell detection", () => {
       </head>
       <body><div id="__next" data-reactroot></div></body>
     </html>`;
-    const bp = await scanToBlueprint({
+    const { blueprint: bp } = await scanToBlueprint({
       html,
       baseUrl: "https://spa.example/",
       captureAssets: false,

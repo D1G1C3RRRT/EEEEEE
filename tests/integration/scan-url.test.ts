@@ -7,9 +7,9 @@ import { scanToBlueprint } from "@/lib/blueprint/scan";
  */
 describe("scanToBlueprint · live URL", () => {
   it("scans https://example.com", async () => {
-    let bp;
+    let bp!: Awaited<ReturnType<typeof scanToBlueprint>>["blueprint"];
     try {
-      bp = await scanToBlueprint({ url: "https://example.com" });
+      ({ blueprint: bp } = await scanToBlueprint({ url: "https://example.com" }));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/fetch|abort|ENOTFOUND|network|ECONN|timed/i.test(msg)) {
@@ -32,7 +32,7 @@ describe("scanToBlueprint · live URL", () => {
   it("surfaces HTTP errors for bad public hosts that respond 404-ish path", async () => {
     // example.com/this-path-should-404 — some hosts still 200; just ensure no crash
     try {
-      const bp = await scanToBlueprint({
+      const { blueprint: bp } = await scanToBlueprint({
         url: "https://example.com/this-path-does-not-exist-blueprint-test",
       });
       // example.com often returns 404

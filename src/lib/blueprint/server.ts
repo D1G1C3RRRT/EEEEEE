@@ -18,6 +18,8 @@ import {
 installProcessErrorGuards();
 
 const memory = new Map<string, Blueprint>();
+/** Scan-scope HTML per crawled page URL, keyed by blueprint ID. Never persisted. */
+const pagesHtmlMemory = new Map<string, Map<string, string>>();
 
 const scanSchema = z
   .object({
@@ -44,7 +46,7 @@ export const scanBlueprint = createServerFn({ method: "POST" })
         : undefined;
     return withApiGuard(async () => {
       try {
-        const blueprint = await scanToBlueprint({
+        const { blueprint, pagesHtml } = await scanToBlueprint({
           url: data.url,
           html: data.html,
           baseUrl: data.baseUrl,
@@ -59,9 +61,15 @@ export const scanBlueprint = createServerFn({ method: "POST" })
           return { ok: false as const, error: "Sken bol zrušený.", code: "ABORTED" };
         }
         memory.set(blueprint.id, blueprint);
+        if (pagesHtml.size > 0) {
+          pagesHtmlMemory.set(blueprint.id, pagesHtml);
+        }
         if (memory.size > 40) {
           const first = memory.keys().next().value;
-          if (first) memory.delete(first);
+          if (first) {
+            memory.delete(first);
+            pagesHtmlMemory.delete(first);
+          }
         }
         try {
           await saveBlueprintDb(blueprint);
