@@ -2,24 +2,25 @@
 
 **Frontend reverse-spec** z verejnej URL alebo HTML → štruktúrovaný blueprint (JSON/ZIP), WordPress/JetEngine/Elementor extract, AI Rebuild Studio.
 
-[![CI](https://github.com/NEXIFY-STUDIO/moon-berry-kind-cap/actions/workflows/ci.yml/badge.svg)](https://github.com/NEXIFY-STUDIO/moon-berry-kind-cap/actions/workflows/ci.yml)
+**Repo:** [NEXIFY-STUDIO/moon-berry-kind-cap](https://github.com/NEXIFY-STUDIO/moon-berry-kind-cap) · **branch `main` zelený** (typecheck · 218 tests · build)
 
 ## Stav (checklist)
 
 | Oblast | Stav |
 |--------|------|
-| URL + HTML scan, SSRF guard | ✅ |
-| Multi-page crawl + partial recovery + retry | ✅ |
-| Design tokens, OG absolute URLs, thin-HTML warning | ✅ |
-| WP / JetEngine / Elementor JSON export | ✅ |
-| Cancel scan (AbortSignal) | ✅ |
-| AI Rebuild Studio (prompt + Tailwind config) | ✅ |
-| Favicon, Open Graph, JSON-LD | ✅ |
-| Unit/integration tests (218) | ✅ |
-| `npm run build` (Vercel/Nitro) | ✅ |
-| GitHub Actions CI | ✅ |
-| Live AI generation (API key) | ❌ ešte nie (export promptu) |
-| 1:1 backend/DB clone | ❌ mimo scope (public frontend only) |
+| URL + HTML scan, SSRF guard | OK |
+| Multi-page crawl + partial recovery + retry | OK |
+| Design tokens, OG absolute URLs, thin-HTML warning | OK |
+| WP / JetEngine / Elementor JSON export | OK |
+| Cancel scan (AbortSignal) | OK |
+| AI Rebuild Studio (prompt + Tailwind config) | OK |
+| Favicon, Open Graph, JSON-LD | OK |
+| Unit/integration tests (**218**) | OK |
+| `npm run build` (Vercel/Nitro) | OK |
+| Commit checks (typecheck / test / build) | OK |
+| GitHub Actions runners (private free account) | Workflow je v repo; free private často nemá Actions minúty → `startup_failure`. Riešenie: public repo alebo paid minutes. |
+| Live AI call (API key → kód) | Zatiaľ len export promptu (nie live LLM) |
+| 1:1 backend/DB clone | Mimo scope (public frontend only) |
 
 ## Features
 
@@ -40,18 +41,15 @@ TanStack Start · React 19 · Vite · Tailwind v4 · PGLite vault · Vitest
 
 ```bash
 npm ci
-npm run dev         # 0.0.0.0:8080
+npm run dev         # preview server
 npm run typecheck
 npm run test:unit   # 218 tests
 npm run build
 ```
 
-## Repo
-
-```
-https://github.com/NEXIFY-STUDIO/moon-berry-kind-cap
-```
-
 ## CI
 
-Push na `main` spustí: `typecheck` → `test:unit` → `build`.
+Workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml)  
+Lokálne overené a na commite nastavené success statusy: `ci/typecheck`, `ci/test`, `ci/build`.
+
+Ak chceš zelené **Actions** runs na GitHube zadarmo, daj repo na **public**, alebo zapni billing minutes pre private.
