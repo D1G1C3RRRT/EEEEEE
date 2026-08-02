@@ -22,6 +22,8 @@ import {
   Blocks,
   LayoutGrid,
   AlertTriangle,
+  Sparkles,
+  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +39,9 @@ import {
 } from "@/lib/blueprint/storage";
 import type { Blueprint, DomOutlineNode } from "@/lib/blueprint/types";
 import { partialScanBadgeLabel } from "@/lib/blueprint/crawl-pages";
+import {
+  generateAiRebuildPrompt,
+} from "@/lib/ai-rebuild/prompter";
 import { cn, formatBytes } from "@/lib/utils";
 
 function confVariant(c: "high" | "medium" | "low") {
@@ -78,6 +83,9 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
   const [tab, setTab] = useState("overview");
   const [copied, setCopied] = useState(false);
   const [zipping, setZipping] = useState(false);
+  const [copiedAi, setCopiedAi] = useState<"prompt" | "tw" | null>(null);
+
+  const aiRebuild = useMemo(() => generateAiRebuildPrompt(blueprint), [blueprint]);
 
   const pages = blueprint.pages ?? [];
   const capturedCount =
@@ -306,6 +314,7 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
             <TabsTrigger value="wordpress">WP / JetEngine</TabsTrigger>
             <TabsTrigger value="elementor">Elementor JSON</TabsTrigger>
             <TabsTrigger value="design">Dizajn</TabsTrigger>
+            <TabsTrigger value="ai-rebuild">AI Rebuild</TabsTrigger>
             <TabsTrigger value="structure">Štruktúra</TabsTrigger>
             <TabsTrigger value="pages">Stránky</TabsTrigger>
             <TabsTrigger value="assets">Assety</TabsTrigger>
@@ -1207,6 +1216,131 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
                   srcDoc={previewSrc}
                   className="h-[70vh] min-h-[420px] w-full bg-white"
                 />
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+
+        <TabsContent value="ai-rebuild" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="size-4" />
+                AI Rebuild Studio
+              </CardTitle>
+              <CardDescription>
+                Prompt pre Claude / ChatGPT / Cursor — rebuild UI z design tokenov a štruktúry blueprintu
+                (Next.js App Router + Tailwind).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(aiRebuild.fullPrompt);
+                    setCopiedAi("prompt");
+                    toast.success("Kopírované!", {
+                      description: "Prompt pre Claude / ChatGPT je v schránke",
+                    });
+                    setTimeout(() => setCopiedAi(null), 1600);
+                  }}
+                >
+                  {copiedAi === "prompt" ? (
+                    <Check className="size-3.5" />
+                  ) : (
+                    <Wand2 className="size-3.5" />
+                  )}
+                  Kopírovať prompt pre Claude/ChatGPT
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(aiRebuild.tailwindConfigJs);
+                    setCopiedAi("tw");
+                    toast.success("Kopírované!", {
+                      description: "Tailwind config fragment je v schránke",
+                    });
+                    setTimeout(() => setCopiedAi(null), 1600);
+                  }}
+                >
+                  {copiedAi === "tw" ? (
+                    <Check className="size-3.5" />
+                  ) : (
+                    <Copy className="size-3.5" />
+                  )}
+                  Kopírovať ako Tailwind Config
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    downloadText(
+                      `${blueprint.id}-ai-rebuild-prompt.txt`,
+                      aiRebuild.fullPrompt,
+                      "text/plain;charset=utf-8",
+                    );
+                    toast.success("Prompt stiahnutý");
+                  }}
+                >
+                  <Download className="size-3.5" />
+                  Stiahnuť .txt
+                </Button>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6 text-xs">
+                {[
+                  ["Farby", aiRebuild.meta.colorCount],
+                  ["Fonty", aiRebuild.meta.fontCount],
+                  ["Headings", aiRebuild.meta.headingCount],
+                  ["Formuláre", aiRebuild.meta.formCount],
+                  ["Tech", aiRebuild.meta.techCount],
+                  ["Title", aiRebuild.meta.title ? "✓" : "—"],
+                ].map(([label, val]) => (
+                  <div
+                    key={String(label)}
+                    className="rounded-[var(--radius-sm)] border border-border bg-bg-subtle/50 px-2.5 py-2"
+                  >
+                    <div className="text-fg-subtle">{label}</div>
+                    <div className="font-medium mono text-fg">{val}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium flex items-center gap-2">
+                  <Bot className="size-3.5" />
+                  System prompt
+                </h4>
+                <ScrollArea className="h-[140px] rounded-[var(--radius-md)] border border-border bg-bg-elevated">
+                  <pre className="p-3 text-[11px] leading-relaxed mono text-fg-muted whitespace-pre-wrap break-words">
+                    {aiRebuild.systemPrompt}
+                  </pre>
+                </ScrollArea>
+              </div>
+
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">User prompt (design tokens + štruktúra)</h4>
+                <ScrollArea className="h-[320px] rounded-[var(--radius-md)] border border-border bg-[#0c0c0e]">
+                  <pre className="p-3 text-[11px] leading-relaxed mono text-emerald-200/90 whitespace-pre-wrap break-words">
+                    {aiRebuild.userPrompt}
+                  </pre>
+                </ScrollArea>
+              </div>
+
+              <div className="space-y-2">
+                <h4 className="text-sm font-medium">Tailwind config fragment</h4>
+                <ScrollArea className="h-[200px] rounded-[var(--radius-md)] border border-border bg-[#0c0c0e]">
+                  <pre className="p-3 text-[11px] leading-relaxed mono text-sky-200/90 whitespace-pre-wrap break-words">
+                    {aiRebuild.tailwindConfigJs}
+                  </pre>
+                </ScrollArea>
               </div>
             </CardContent>
           </Card>
