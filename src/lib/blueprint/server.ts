@@ -29,7 +29,13 @@ const scanSchema = z
 
 export const scanBlueprint = createServerFn({ method: "POST" })
   .validator((data: unknown) => scanSchema.parse(data))
-  .handler(async ({ data }) => {
+  .handler(async (ctx) => {
+    const data = ctx.data;
+    // AbortSignal when client cancels (TanStack may expose signal on context)
+    const signal =
+      "signal" in ctx && ctx.signal instanceof AbortSignal
+        ? ctx.signal
+        : undefined;
     try {
       const blueprint = await scanToBlueprint({
         url: data.url,
@@ -40,7 +46,11 @@ export const scanBlueprint = createServerFn({ method: "POST" })
         wayback: data.wayback,
         captureAssets: data.captureAssets,
         wpJetEngine: data.wpJetEngine,
+        signal,
       });
+      if (signal?.aborted) {
+        return { ok: false as const, error: "Sken bol zrušený." };
+      }
       memory.set(blueprint.id, blueprint);
       if (memory.size > 40) {
         const first = memory.keys().next().value;
@@ -53,6 +63,13 @@ export const scanBlueprint = createServerFn({ method: "POST" })
       }
       return { ok: true as const, blueprint };
     } catch (err) {
+      if (
+        signal?.aborted ||
+        (err instanceof Error &&
+          (err.name === "AbortError" || /abort/i.test(err.message)))
+      ) {
+        return { ok: false as const, error: "Sken bol zrušený." };
+      }
       const message =
         err instanceof Error ? err.message : "Sken zlyhal z neznámeho dôvodu.";
       return { ok: false as const, error: message };

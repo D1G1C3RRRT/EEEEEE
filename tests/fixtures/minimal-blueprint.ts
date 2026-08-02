@@ -71,6 +71,8 @@ export function makeMinimalBlueprint(overrides: Partial<Blueprint> = {}): Bluepr
     rendered: false,
     wordpress: null,
     elementorTemplate: null,
+    isThinHtml: false,
+    thinHtmlReasons: [],
     stats: {
       htmlBytes: 128,
       assetCount: 1,

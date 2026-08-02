@@ -260,4 +260,50 @@ describe("UI · ScanForm", () => {
     expect(container.textContent).toMatch(/network down/);
     unmount();
   });
+
+  it("shows Zrušiť cancel button when busy", () => {
+    const { container, unmount } = render(
+      <ScanForm onScanned={() => {}} busy setBusy={() => {}} />,
+    );
+    const cancel = [...container.querySelectorAll("button")].find((b) =>
+      /Zrušiť/.test(b.textContent || ""),
+    );
+    expect(cancel).toBeTruthy();
+    unmount();
+  });
+
+  it("cancel aborts and returns UI without throw", async () => {
+    let resolveScan: (v: unknown) => void = () => {};
+    scanBlueprint.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveScan = resolve;
+        }),
+    );
+    const { container, unmount } = render(<ScanForm onScanned={() => {}} />);
+    typeInput(
+      container.querySelector(
+        'input[placeholder="https://moja-appka.com"]',
+      ) as HTMLInputElement,
+      "https://example.com",
+    );
+    click(
+      [...container.querySelectorAll("button")].find((b) =>
+        /Vytvoriť blueprint|Skenujem/.test(b.textContent || ""),
+      )!,
+    );
+    await flush();
+    const cancel = [...container.querySelectorAll("button")].find((b) =>
+      /Zrušiť/.test(b.textContent || ""),
+    );
+    expect(cancel).toBeTruthy();
+    click(cancel!);
+    await flush();
+    expect(container.textContent).toMatch(/zrušen/i);
+    // late resolve must not crash
+    resolveScan({ ok: true, blueprint: makeMinimalBlueprint() });
+    await flush();
+    unmount();
+  });
+
 });

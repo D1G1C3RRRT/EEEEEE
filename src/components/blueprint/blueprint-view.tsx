@@ -21,6 +21,7 @@ import {
   Files,
   Blocks,
   LayoutGrid,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -168,6 +169,12 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
                   {blueprint.scanStatus === "aborted" ? "Prerušený sken" : "Čiastočný sken"}
                 </Badge>
               )}
+              {blueprint.isThinHtml && (
+                <Badge variant="warning">
+                  <AlertTriangle className="size-3 mr-1" />
+                  Thin HTML
+                </Badge>
+              )}
             </div>
             <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-balance break-words">
               {blueprint.meta.title || "Bez title"}
@@ -194,6 +201,28 @@ export function BlueprintView({ blueprint }: { blueprint: Blueprint }) {
             {partialScanBadgeLabel(blueprint.scanStatus, blueprint.partialStats) && (
               <div className="mt-2 rounded-[var(--radius-md)] border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
                 {partialScanBadgeLabel(blueprint.scanStatus, blueprint.partialStats)}
+              </div>
+            )}
+            {blueprint.isThinHtml && (
+              <div className="mt-2 flex items-start gap-2 rounded-[var(--radius-md)] border border-warning/50 bg-warning/10 px-3 py-2.5 text-sm text-warning">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                <div className="min-w-0 space-y-1">
+                  <p className="font-medium text-fg">
+                    Tenký HTML shell (SPA)
+                  </p>
+                  <p className="text-fg-muted">
+                    Server poslal prevažne prázdny obal — obsah sa typicky kreslí až v prehliadači.
+                    Blueprint môže byť chudobnejší (menej textu, sekcií a odkazov). Zapni{" "}
+                    <strong className="text-fg">Headless render</strong> a skús sken znova.
+                  </p>
+                  {blueprint.thinHtmlReasons?.length ? (
+                    <ul className="list-disc pl-4 text-xs text-fg-subtle space-y-0.5">
+                      {blueprint.thinHtmlReasons.slice(0, 4).map((r) => (
+                        <li key={r}>{r}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
               </div>
             )}
             {blueprint.scanWarnings?.failedUrls?.length ? (

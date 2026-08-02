@@ -1,10 +1,12 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
+import {
+  SITE_DESCRIPTION,
+  SITE_TITLE,
+  buildHeadJsonLdScripts,
+} from "@/lib/seo/json-ld";
 
-const SITE_TITLE = "Blueprint — URL → 1:1 frontend blueprint";
-const SITE_DESCRIPTION =
-  "Skenuj ľubovoľnú verejnú URL alebo vlož HTML a vytvor štruktúrovaný 1:1 frontend blueprint s exportom JSON/ZIP. WordPress, JetEngine, Elementor reverse-spec.";
 /** Absolute-path social image (resolves against deploy origin). */
 const OG_IMAGE = "/android-chrome-512x512.png";
 
@@ -76,6 +78,7 @@ export const Route = createRootRoute({
       { rel: "icon", href: "/favicon.ico", sizes: "any" },
       { rel: "manifest", href: "/site.webmanifest" },
     ],
+    scripts: buildHeadJsonLdScripts(),
   }),
   component: RootDocument,
 });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Globe2,
   FileCode2,
@@ -10,6 +10,7 @@ import {
   Archive,
   Package,
   Blocks,
+  XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,8 @@ export function ScanForm({ onScanned, busy, setBusy }: Props) {
   const [wpJetEngine, setWpJetEngine] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [localBusy, setLocalBusy] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const cancelledRef = useRef(false);
   const isBusy = busy ?? localBusy;
 
   const markBusy = (v: boolean) => {
@@ -50,31 +53,54 @@ export function ScanForm({ onScanned, busy, setBusy }: Props) {
     setBusy?.(v);
   };
 
+  function cancelScan() {
+    cancelledRef.current = true;
+    abortRef.current?.abort();
+    markBusy(false);
+    setError("Sken bol zrušený.");
+  }
+
   async function runScan() {
     setError(null);
+    cancelledRef.current = false;
+    const ac = new AbortController();
+    abortRef.current = ac;
     markBusy(true);
     try {
-      const result = await scanBlueprint({
-        data:
-          mode === "url"
-            ? {
-                url: url.trim(),
-                maxPages,
-                render,
-                wayback,
-                captureAssets,
-                wpJetEngine,
-              }
-            : {
-                html,
-                baseUrl: baseUrl.trim() || undefined,
-                captureAssets,
-                maxPages: 1,
-                render: false,
-                wayback: false,
-                wpJetEngine,
-              },
+      const payload =
+        mode === "url"
+          ? {
+              url: url.trim(),
+              maxPages,
+              render,
+              wayback,
+              captureAssets,
+              wpJetEngine,
+            }
+          : {
+              html,
+              baseUrl: baseUrl.trim() || undefined,
+              captureAssets,
+              maxPages: 1,
+              render: false,
+              wayback: false,
+              wpJetEngine,
+            };
+
+      // Pass AbortSignal when the runtime supports it (fetch layer / server fn).
+      const result = await (scanBlueprint as (args: {
+        data: typeof payload;
+        signal?: AbortSignal;
+      }) => Promise<{ ok: true; blueprint: Blueprint } | { ok: false; error: string }>)({
+        data: payload,
+        signal: ac.signal,
       });
+
+      if (cancelledRef.current || ac.signal.aborted) {
+        setError("Sken bol zrušený.");
+        return;
+      }
+
       if (!result.ok) {
         setError(result.error);
         return;
@@ -82,8 +108,18 @@ export function ScanForm({ onScanned, busy, setBusy }: Props) {
       saveBlueprintLocal(result.blueprint);
       onScanned(result.blueprint);
     } catch (e) {
+      if (
+        cancelledRef.current ||
+        ac.signal.aborted ||
+        (e instanceof Error &&
+          (e.name === "AbortError" || /abort|zrušen/i.test(e.message)))
+      ) {
+        setError("Sken bol zrušený.");
+        return;
+      }
       setError(e instanceof Error ? e.message : "Sken zlyhal.");
     } finally {
+      if (abortRef.current === ac) abortRef.current = null;
       markBusy(false);
     }
   }
@@ -263,24 +299,38 @@ export function ScanForm({ onScanned, busy, setBusy }: Props) {
         <p className="text-xs text-fg-subtle max-w-md">
           Headless + crawl trvá dlhšie. Pre rýchly test vypni render a nastav 1 stránku.
         </p>
-        <Button
-          size="lg"
-          disabled={isBusy || (mode === "url" ? !url.trim() : !html.trim())}
-          onClick={() => void runScan()}
-          className="w-full sm:w-auto min-w-[160px]"
-        >
-          {isBusy ? (
-            <>
-              <Loader2 className="size-4 animate-spin" />
-              Skenujem…
-            </>
-          ) : (
-            <>
-              <ScanSearch className="size-4" />
-              Vytvoriť blueprint
-            </>
+        <div className="flex w-full sm:w-auto flex-col-reverse sm:flex-row gap-2">
+          {isBusy && (
+            <Button
+              type="button"
+              size="lg"
+              variant="outline"
+              onClick={cancelScan}
+              className="w-full sm:w-auto min-w-[120px] border-danger/40 text-danger hover:bg-danger/10"
+            >
+              <XCircle className="size-4" />
+              Zrušiť
+            </Button>
           )}
-        </Button>
+          <Button
+            size="lg"
+            disabled={isBusy || (mode === "url" ? !url.trim() : !html.trim())}
+            onClick={() => void runScan()}
+            className="w-full sm:w-auto min-w-[160px]"
+          >
+            {isBusy ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Skenujem…
+              </>
+            ) : (
+              <>
+                <ScanSearch className="size-4" />
+                Vytvoriť blueprint
+              </>
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   );

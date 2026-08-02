@@ -192,6 +192,12 @@ export interface Blueprint {
   partialStats?: PartialStats | null;
   /** Structured warnings (failed URLs etc.) */
   scanWarnings?: ScanWarnings | null;
+  /**
+   * SPA / thin HTML shell — raw DOM has little content (needs headless render).
+   */
+  isThinHtml?: boolean;
+  /** Human-readable reasons for isThinHtml */
+  thinHtmlReasons?: string[];
   stats: {
     htmlBytes: number;
     assetCount: number;

@@ -31,6 +31,11 @@ import type { ElementorTemplate } from "./elementor-compiler";
 import { extractWordPressArchitecture } from "./wordpress-jetengine";
 import type { WordPressArchitecture } from "./wordpress-jetengine";
 import { findWaybackSnapshot } from "./wayback";
+import {
+  absolutizeOpenGraphMeta,
+  absolutizeTwitterMeta,
+} from "./meta-urls";
+import { detectThinHtml, thinHtmlUserMessage } from "./thin-html";
 
 
 
@@ -240,6 +245,9 @@ function extractMeta(root: HTMLElement, base: string) {
     .map((l) => absUrl(base, l.getAttribute("href")))
     .filter((u): u is string => Boolean(u));
 
+  const ogAbs = absolutizeOpenGraphMeta(og, base);
+  const twitterAbs = absolutizeTwitterMeta(twitter, base);
+
   return {
     title,
     description:
@@ -252,8 +260,8 @@ function extractMeta(root: HTMLElement, base: string) {
       get('meta[http-equiv="content-language"]') ||
       null,
     robots: get('meta[name="robots"]') || null,
-    og,
-    twitter,
+    og: ogAbs,
+    twitter: twitterAbs,
     icons,
     themeColor: get('meta[name="theme-color"]') || null,
     viewport: get('meta[name="viewport"]') || null,
@@ -1171,6 +1179,23 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
     return out;
   })();
 
+  const thin = detectThinHtml({
+    html: primary.html,
+    headingsCount: primary.headings.length,
+    linkCount: primary.links.length,
+    tech,
+    rendered,
+  });
+  if (thin.isThinHtml) {
+    notes.push(thinHtmlUserMessage(thin.reasons));
+    for (const r of thin.reasons) {
+      if (!notes.includes(r)) notes.push(r);
+    }
+    limitations.push(
+      "Thin HTML / SPA shell — blueprint môže byť neúplný bez headless renderu.",
+    );
+  }
+
   const blueprint: Blueprint = {
     id: makeId(idLabel),
     version: "1.2.0",
@@ -1209,6 +1234,8 @@ export async function scanToBlueprint(input: ScanRequest): Promise<Blueprint> {
     scanStatus,
     partialStats,
     scanWarnings,
+    isThinHtml: thin.isThinHtml,
+    thinHtmlReasons: thin.reasons,
     stats: {
       htmlBytes: Buffer.byteLength(primary.html, "utf8"),
       assetCount: assets.length,
