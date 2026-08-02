@@ -108,7 +108,7 @@ describe("design-system extract", () => {
   });
 
   it("scanToBlueprint merges design system into blueprint.design", async () => {
-    const bp = await scanToBlueprint({
+    const { blueprint: bp } = await scanToBlueprint({
       html: sampleHtml,
       baseUrl: "https://site.example/",
       captureAssets: false,
