@@ -1,6 +1,19 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Rotating neon angle — must be top-level for @property animation */
+@property --neon-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@property --toggle-neon-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
 @theme {
   --color-bg: #0a0a0b;
   --color-bg-elevated: #111113;
@@ -102,8 +115,9 @@
   }
 
   /* ── Premium neon border (main input) ──
-     conic-gradient + mask-composite = thin rotating ring
-     ::after = soft ambient glow outside the field
+     Snake = short bright arc on a FIXED rounded-rect mask.
+     We animate --neon-angle (conic from), NOT transform:rotate
+     (rotate spins the whole wide box and kills the snake effect).
   */
   .neon-border-wrapper {
     position: relative;
@@ -114,18 +128,18 @@
   .neon-border-wrapper::before {
     content: "";
     position: absolute;
-    inset: -1.5px;
+    inset: -2px;
     border-radius: inherit;
-    padding: 1.5px;
+    padding: 2px;
     background: conic-gradient(
-      from 0deg,
-      transparent 0%,
-      color-mix(in oklab, var(--color-accent) 85%, transparent) 12%,
-      color-mix(in oklab, #f0d9a8 60%, transparent) 28%,
-      transparent 42%,
-      transparent 58%,
-      color-mix(in oklab, var(--color-accent) 50%, transparent) 72%,
-      transparent 100%
+      from var(--neon-angle),
+      transparent 0deg,
+      transparent 280deg,
+      #c8a16e 300deg,
+      #fff4cc 320deg,
+      #f5a623 335deg,
+      #c8a16e 350deg,
+      transparent 360deg
     );
     -webkit-mask:
       linear-gradient(#000 0 0) content-box,
@@ -135,27 +149,30 @@
       linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
-    animation: neon-spin 4s linear infinite;
+    animation: neon-spin 2.4s linear infinite;
     pointer-events: none;
     z-index: 0;
-    opacity: 0.9;
+    opacity: 1;
+    will-change: --neon-angle;
   }
 
-  /* Soft outer ambient glow */
+  /* Soft outer ambient glow that follows accent */
   .neon-border-wrapper::after {
     content: "";
     position: absolute;
-    inset: -10px;
+    inset: -12px;
     border-radius: inherit;
     background: radial-gradient(
       ellipse at center,
-      color-mix(in oklab, var(--color-accent) 18%, transparent) 0%,
-      transparent 70%
+      color-mix(in oklab, #c8a16e 22%, transparent) 0%,
+      color-mix(in oklab, #f5a623 8%, transparent) 40%,
+      transparent 72%
     );
     pointer-events: none;
     z-index: -1;
-    filter: blur(14px);
-    opacity: 0.65;
+    filter: blur(16px);
+    opacity: 0.75;
+    animation: neon-glow-pulse 2.4s ease-in-out infinite;
   }
 
   .neon-border-wrapper > .neon-inner {
@@ -163,28 +180,30 @@
     z-index: 1;
     border-radius: calc(var(--radius-lg) - 1px);
     background: var(--color-bg);
-    border: 1px solid var(--color-border);
+    border: 1px solid color-mix(in oklab, var(--color-border) 80%, #c8a16e 20%);
   }
 
-  /* Focus boost — brighter + faster ring */
+  /* Focus boost — brighter + faster snake */
   .neon-border-wrapper:focus-within::before {
     opacity: 1;
-    animation-duration: 2.8s;
+    animation-duration: 1.6s;
+    padding: 2.5px;
     background: conic-gradient(
-      from 0deg,
-      transparent 0%,
-      var(--color-accent) 15%,
-      #f0d9a8 30%,
-      transparent 45%,
-      transparent 55%,
-      var(--color-accent) 70%,
-      transparent 100%
+      from var(--neon-angle),
+      transparent 0deg,
+      transparent 250deg,
+      #e8c48a 275deg,
+      #ffffff 300deg,
+      #ffcc66 320deg,
+      #f5a623 340deg,
+      #c8a16e 355deg,
+      transparent 360deg
     );
   }
 
   .neon-border-wrapper:focus-within::after {
     opacity: 1;
-    filter: blur(18px);
+    filter: blur(20px);
   }
 
   .start-here-badge {
@@ -212,11 +231,12 @@
     border-radius: 9999px;
     padding: 1.5px;
     background: conic-gradient(
-      from 0deg,
+      from var(--toggle-neon-angle),
       transparent 0deg,
-      color-mix(in oklab, var(--color-accent) 70%, transparent) 80deg,
-      color-mix(in oklab, var(--color-warning) 45%, transparent) 150deg,
-      color-mix(in oklab, var(--color-fg) 30%, transparent) 220deg,
+      transparent 200deg,
+      #c8a16e 240deg,
+      #fff4cc 280deg,
+      #f5a623 320deg,
       transparent 360deg
     );
     -webkit-mask:
@@ -227,7 +247,7 @@
       linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
-    animation: toggle-neon-spin 3.5s linear infinite;
+    animation: toggle-neon-spin 2.8s linear infinite;
     pointer-events: none;
     z-index: 0;
   }
@@ -297,21 +317,26 @@
     }
   }
 
+  /* Angle-only spin = snake crawls along the fixed ring */
   @keyframes neon-spin {
-    0% {
-      transform: rotate(0deg);
-    }
-    100% {
-      transform: rotate(360deg);
+    to {
+      --neon-angle: 360deg;
     }
   }
 
   @keyframes toggle-neon-spin {
-    0% {
-      transform: rotate(0deg);
+    to {
+      --toggle-neon-angle: 360deg;
     }
+  }
+
+  @keyframes neon-glow-pulse {
+    0%,
     100% {
-      transform: rotate(360deg);
+      opacity: 0.55;
+    }
+    50% {
+      opacity: 0.9;
     }
   }
 
@@ -324,38 +349,26 @@
     }
   }
 
+  /* Only when user explicitly wants less motion — do NOT kill neon for everyone */
   @media (prefers-reduced-motion: reduce) {
     .shimmer,
-    .neon-border-wrapper::before,
-    .toggle-neon-ring::before,
     .toggle-hold-progress {
       animation: none;
     }
 
     .neon-border-wrapper::before {
-      opacity: 0.75;
-      background: color-mix(in oklab, var(--color-accent) 55%, transparent);
-    }
-
-    .neon-border-wrapper::after {
-      opacity: 0.35;
-    }
-
-    .toggle-neon-ring::before {
-      background: color-mix(in oklab, var(--color-accent) 55%, transparent);
+      animation: neon-spin 6s linear infinite;
       opacity: 0.85;
     }
 
-    .toggle-hold-progress {
-      border-color: color-mix(in oklab, var(--color-accent) 70%, transparent);
+    .neon-border-wrapper::after {
+      animation: none;
+      opacity: 0.4;
     }
 
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
+    .toggle-neon-ring::before {
+      animation: toggle-neon-spin 6s linear infinite;
+      opacity: 0.85;
     }
   }
 }
