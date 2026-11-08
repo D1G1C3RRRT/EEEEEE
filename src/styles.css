@@ -132,13 +132,13 @@
     border-radius: inherit;
     padding: 2px;
     background: conic-gradient(
-      from var(--neon-angle),
+      from 0deg,
       transparent 0deg,
       transparent 280deg,
-      #c8a16e 300deg,
-      #fff4cc 320deg,
-      #f5a623 335deg,
-      #c8a16e 350deg,
+      color-mix(in oklab, var(--color-accent) 88%, transparent) 300deg,
+      color-mix(in oklab, var(--color-accent) 40%, white 60%) 320deg,
+      color-mix(in oklab, var(--color-accent) 82%, #f5a623 18%) 335deg,
+      color-mix(in oklab, var(--color-accent) 90%, transparent) 350deg,
       transparent 360deg
     );
     -webkit-mask:
@@ -149,11 +149,10 @@
       linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
-    animation: neon-spin 2.04s linear infinite;
+    animation: none;
     pointer-events: none;
     z-index: 0;
     opacity: 1;
-    will-change: --neon-angle;
   }
 
   .neon-border-wrapper::after {
@@ -163,15 +162,15 @@
     border-radius: inherit;
     background: radial-gradient(
       ellipse at center,
-      color-mix(in oklab, #c8a16e 22%, transparent) 0%,
-      color-mix(in oklab, #f5a623 8%, transparent) 40%,
+      color-mix(in oklab, var(--color-accent) 22%, transparent) 0%,
+      color-mix(in oklab, var(--color-accent) 14%, #f5a623 86%) 40%,
       transparent 72%
     );
     pointer-events: none;
     z-index: -1;
     filter: blur(16px);
     opacity: 0.75;
-    animation: neon-glow-pulse 2.04s ease-in-out infinite;
+    animation: none;
   }
 
   .neon-border-wrapper > .neon-inner {
@@ -179,22 +178,22 @@
     z-index: 1;
     border-radius: calc(var(--radius-lg) - 1px);
     background: var(--color-bg);
-    border: 1px solid color-mix(in oklab, var(--color-border) 80%, #c8a16e 20%);
+    border: 1px solid
+      color-mix(in oklab, var(--color-border) 80%, var(--color-accent) 20%);
   }
 
   .neon-border-wrapper:focus-within::before {
     opacity: 1;
-    animation-duration: 1.36s;
     padding: 2.5px;
     background: conic-gradient(
-      from var(--neon-angle),
+      from 0deg,
       transparent 0deg,
       transparent 250deg,
-      #e8c48a 275deg,
+      color-mix(in oklab, var(--color-accent) 66%, white 34%) 275deg,
       #ffffff 300deg,
-      #ffcc66 320deg,
-      #f5a623 340deg,
-      #c8a16e 355deg,
+      color-mix(in oklab, var(--color-accent) 42%, #ffcc66 58%) 320deg,
+      color-mix(in oklab, var(--color-accent) 82%, #f5a623 18%) 340deg,
+      color-mix(in oklab, var(--color-accent) 90%, transparent) 355deg,
       transparent 360deg
     );
   }
@@ -228,12 +227,12 @@
     border-radius: 9999px;
     padding: 1.5px;
     background: conic-gradient(
-      from var(--toggle-neon-angle),
+      from 0deg,
       transparent 0deg,
       transparent 200deg,
-      #c8a16e 240deg,
-      #fff4cc 280deg,
-      #f5a623 320deg,
+      color-mix(in oklab, var(--color-accent) 88%, transparent) 240deg,
+      color-mix(in oklab, var(--color-accent) 42%, white 58%) 280deg,
+      color-mix(in oklab, var(--color-accent) 82%, #f5a623 18%) 320deg,
       transparent 360deg
     );
     -webkit-mask:
@@ -244,9 +243,58 @@
       linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
-    animation: toggle-neon-spin 2.38s linear infinite;
+    animation: none;
     pointer-events: none;
     z-index: 0;
+  }
+
+  @supports (background: conic-gradient(from var(--neon-angle), #000, #fff)) {
+    .neon-border-wrapper::before {
+      background: conic-gradient(
+        from var(--neon-angle),
+        transparent 0deg,
+        transparent 280deg,
+        color-mix(in oklab, var(--color-accent) 88%, transparent) 300deg,
+        color-mix(in oklab, var(--color-accent) 40%, white 60%) 320deg,
+        color-mix(in oklab, var(--color-accent) 82%, #f5a623 18%) 335deg,
+        color-mix(in oklab, var(--color-accent) 90%, transparent) 350deg,
+        transparent 360deg
+      );
+      animation: neon-spin 2.04s linear infinite;
+      will-change: --neon-angle;
+    }
+
+    .neon-border-wrapper::after {
+      animation: neon-glow-pulse 2.04s ease-in-out infinite;
+    }
+
+    .neon-border-wrapper:focus-within::before {
+      animation-duration: 1.36s;
+      background: conic-gradient(
+        from var(--neon-angle),
+        transparent 0deg,
+        transparent 250deg,
+        color-mix(in oklab, var(--color-accent) 66%, white 34%) 275deg,
+        #ffffff 300deg,
+        color-mix(in oklab, var(--color-accent) 42%, #ffcc66 58%) 320deg,
+        color-mix(in oklab, var(--color-accent) 82%, #f5a623 18%) 340deg,
+        color-mix(in oklab, var(--color-accent) 90%, transparent) 355deg,
+        transparent 360deg
+      );
+    }
+
+    .toggle-neon-ring::before {
+      background: conic-gradient(
+        from var(--toggle-neon-angle),
+        transparent 0deg,
+        transparent 200deg,
+        color-mix(in oklab, var(--color-accent) 88%, transparent) 240deg,
+        color-mix(in oklab, var(--color-accent) 42%, white 58%) 280deg,
+        color-mix(in oklab, var(--color-accent) 82%, #f5a623 18%) 320deg,
+        transparent 360deg
+      );
+      animation: toggle-neon-spin 2.38s linear infinite;
+    }
   }
 
   .toggle-neon-ring > * {
@@ -347,22 +395,22 @@
 
   @media (prefers-reduced-motion: reduce) {
     .shimmer,
-    .toggle-hold-progress {
+    .toggle-hold-progress,
+    .neon-border-wrapper::before,
+    .neon-border-wrapper::after,
+    .toggle-neon-ring::before {
       animation: none;
     }
 
     .neon-border-wrapper::before {
-      animation: neon-spin 5.1s linear infinite;
       opacity: 0.85;
     }
 
     .neon-border-wrapper::after {
-      animation: none;
       opacity: 0.4;
     }
 
     .toggle-neon-ring::before {
-      animation: toggle-neon-spin 5.1s linear infinite;
       opacity: 0.85;
     }
   }
